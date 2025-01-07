@@ -311,7 +311,6 @@ function generatePagination(totalPages, currentPage, query) {
         $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
     
         if (is_wp_error($response)) {
-            error_log('GitHub API Error: ' . $response->get_error_message());
             wp_send_json_error(['message' => __('Failed to fetch release information.', 'the-repo-plugin')]);
         }
     
@@ -324,7 +323,7 @@ function generatePagination(totalPages, currentPage, query) {
     
         // Include required WordPress files
         require_once ABSPATH . 'wp-admin/includes/file.php';
-        require_once ABSPATH . 'wp-admin/includes/plugin-install.php';
+        require_once ABSPATH . 'wp-admin/includes/plugin.php';
         require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
     
         // Initialize the filesystem
@@ -333,36 +332,52 @@ function generatePagination(totalPages, currentPage, query) {
             wp_send_json_error(['message' => __('Failed to initialize filesystem.', 'the-repo-plugin')]);
         }
     
-        // Check if the plugin already exists
-        $slug = basename($repo_url); // Use the repo name as the plugin folder slug
-        $installed_plugins = get_plugins();
-        foreach ($installed_plugins as $plugin_path => $plugin_data) {
-            if (strpos($plugin_path, $slug) !== false) {
-                wp_send_json_error(['message' => __('A plugin with this slug is already installed.', 'the-repo-plugin')]);
-            }
-        }
-    
         // Download the ZIP file
         $temp_file = download_url($zip_url);
     
         if (is_wp_error($temp_file)) {
-            error_log('Error downloading ZIP file: ' . $temp_file->get_error_message());
             wp_send_json_error(['message' => __('Failed to download the plugin ZIP.', 'the-repo-plugin')]);
+        }
+    
+        // Extract the ZIP to get the folder name
+        $temp_dir = WP_CONTENT_DIR . '/uploads/temp-plugin-extract';
+        if (!wp_mkdir_p($temp_dir)) {
+            wp_send_json_error(['message' => __('Failed to create temporary extraction directory.', 'the-repo-plugin')]);
+        }
+    
+        $unzip_result = unzip_file($temp_file, $temp_dir);
+        if (is_wp_error($unzip_result)) {
+            unlink($temp_file);
+            wp_send_json_error(['message' => __('Failed to extract the plugin ZIP.', 'the-repo-plugin')]);
+        }
+    
+        // Get the folder name
+        $extracted_folders = array_diff(scandir($temp_dir), ['.', '..']);
+        if (empty($extracted_folders)) {
+            unlink($temp_file);
+            wp_send_json_error(['message' => __('No files found in the plugin ZIP.', 'the-repo-plugin')]);
+        }
+    
+        $plugin_folder_name = reset($extracted_folders);
+        $plugin_dir = WP_PLUGIN_DIR . '/' . $plugin_folder_name;
+    
+        // Clean up the temporary extraction
+        $wp_filesystem->delete($temp_dir, true);
+    
+        // Check if the plugin is already installed
+        if (is_dir($plugin_dir)) {
+            unlink($temp_file);
+            wp_send_json_error(['message' => __('A plugin with this folder name is already installed: ', 'the-repo-plugin') . $plugin_folder_name]);
         }
     
         // Use Plugin_Upgrader to handle installation
         $upgrader = new \Plugin_Upgrader(new \WP_Ajax_Upgrader_Skin());
-    
-        // Perform the installation
         $result = $upgrader->install($zip_url);
     
         // Clean up temporary file
-        if (file_exists($temp_file)) {
-            unlink($temp_file);
-        }
+        unlink($temp_file);
     
         if (is_wp_error($result)) {
-            error_log('Error during plugin installation: ' . $result->get_error_message());
             wp_send_json_error(['message' => __('Failed to install the plugin.', 'the-repo-plugin')]);
         }
     
@@ -375,9 +390,7 @@ function generatePagination(totalPages, currentPage, query) {
     }
     
     
-    
-    
-    
+ 
 }
 
 
