@@ -18,7 +18,264 @@ class GitHubPluginSearch {
     
         add_action('wp_ajax_github_plugin_search', [$this, 'handle_ajax']);
         add_action('wp_ajax_nopriv_github_plugin_search', [$this, 'handle_ajax']);
-        add_action('wp_ajax_install_github_plugin', [$this, 'handle_install']); // New action for installation
+        add_action('wp_ajax_install_github_plugin', [$this, 'handle_install']);
+        add_action('wp_ajax_activate_plugin', [$this, 'handle_activate_plugin']);
+        add_action('wp_ajax_deactivate_plugin', [$this, 'handle_deactivate_plugin']);
+    }
+
+    public function handle_ajax() {
+        if (!isset($_GET['query']) || empty($_GET['query'])) {
+            wp_send_json([]);
+        }
+    
+        $query = sanitize_text_field($_GET['query']);
+        $page = isset($_GET['page']) ? absint($_GET['page']) : 1;
+        $per_page = 12; // Results per page
+        $offset = ($page - 1) * $per_page;
+    
+        // Topics to search for
+        $topics = ['wordpress-plugin', 'wordpress'];
+        $all_results = [];
+    
+        // Fetch results for each topic
+        foreach ($topics as $topic) {
+            $api_query = urlencode($query) . "+topic:" . $topic;
+            $api_url = "{$this->github_base_url}/search/repositories?q=" . $api_query . "&per_page=100";
+    
+            $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
+            if (is_wp_error($response)) {
+                error_log('GitHub API Error for topic ' . $topic . ': ' . $response->get_error_message());
+                continue; // Skip this topic if there's an error
+            }
+    
+            $response_body = wp_remote_retrieve_body($response);
+            $data = json_decode($response_body, true);
+            if (!isset($data['items']) || !is_array($data['items'])) {
+                error_log("Invalid or missing 'items' in API response for topic: $topic");
+                continue;
+            }
+    
+            // Merge the results
+            $all_results = array_merge($all_results, $data['items']);
+        }
+    
+        // Remove duplicate repositories
+        $unique_results = array_map('unserialize', array_unique(array_map('serialize', $all_results)));
+    
+        // Apply the filter to repositories
+        $filtered_results = $this->filter_repositories($unique_results);
+    
+        // Check installation and activation status for each plugin
+        $installed_plugins = get_plugins(); // Fetch all installed plugins for matching
+        foreach ($filtered_results as &$repo) {
+            $repo_slug = $repo['full_name']; // Example: 'the-events-calendar/event-tickets'
+            $repo_folder = strtolower(explode('/', $repo_slug)[1]); // Extract the folder name.
+        
+            // Fetch all installed plugins.
+            $installed_plugins = get_plugins();
+            $repo['is_installed'] = false;
+            $repo['is_active'] = false;
+        
+            foreach ($installed_plugins as $plugin_file => $plugin_data) {
+                $plugin_folder = strtolower(dirname($plugin_file));
+                $plugin_basename = strtolower(basename($plugin_file, '.php'));
+                $plugin_title = sanitize_title($plugin_data['Name']);
+        
+                // Match against folder name, basename, or sanitized title.
+                if ($repo_folder === $plugin_folder || $repo_folder === $plugin_basename || $repo_folder === $plugin_title) {
+                    $repo['is_installed'] = true;
+                    $repo['is_active'] = is_plugin_active($plugin_file);
+                    break;
+                }
+            }
+        }
+        
+    
+        $paginated_results = array_slice($filtered_results, $offset, $per_page);
+    
+        $response = [
+            'results' => $paginated_results,
+            'total_pages' => ceil(count($filtered_results) / $per_page),
+        ];
+    
+        wp_send_json($response);
+    }
+    
+    
+    public function handle_install() {
+        // Check permissions
+        if (!current_user_can('install_plugins')) {
+            wp_send_json_error(['message' => __('You do not have permission to install plugins.', 'the-repo-plugin')]);
+        }
+    
+        // Get repo URL from AJAX request
+        $repo_url = isset($_POST['repo_url']) ? esc_url_raw($_POST['repo_url']) : '';
+        if (empty($repo_url)) {
+            wp_send_json_error(['message' => __('Invalid repository URL.', 'the-repo-plugin')]);
+        }
+    
+        // Fetch the latest release
+        $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', $repo_url) . '/releases/latest';
+        $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
+    
+        if (is_wp_error($response)) {
+            wp_send_json_error(['message' => __('Failed to fetch release information.', 'the-repo-plugin')]);
+        }
+    
+        $release_data = json_decode(wp_remote_retrieve_body($response), true);
+        if (empty($release_data['assets'][0]['browser_download_url'])) {
+            wp_send_json_error(['message' => __('No downloadable ZIP found for the latest release.', 'the-repo-plugin')]);
+        }
+    
+        $zip_url = $release_data['assets'][0]['browser_download_url'];
+    
+        // Include required WordPress files
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+    
+        // Initialize the filesystem
+        global $wp_filesystem;
+        if (!WP_Filesystem()) {
+            wp_send_json_error(['message' => __('Failed to initialize filesystem.', 'the-repo-plugin')]);
+        }
+    
+        // Download the ZIP file
+        $temp_file = download_url($zip_url);
+    
+        if (is_wp_error($temp_file)) {
+            wp_send_json_error(['message' => __('Failed to download the plugin ZIP.', 'the-repo-plugin')]);
+        }
+    
+        // Extract the ZIP to get the folder name
+        $temp_dir = WP_CONTENT_DIR . '/uploads/temp-plugin-extract';
+        if (!wp_mkdir_p($temp_dir)) {
+            unlink($temp_file);
+            wp_send_json_error(['message' => __('Failed to create temporary extraction directory.', 'the-repo-plugin')]);
+        }
+    
+        $unzip_result = unzip_file($temp_file, $temp_dir);
+        if (is_wp_error($unzip_result)) {
+            unlink($temp_file);
+            $wp_filesystem->delete($temp_dir, true);
+            wp_send_json_error(['message' => __('Failed to extract the plugin ZIP.', 'the-repo-plugin')]);
+        }
+    
+        // Get the folder name
+        $extracted_folders = array_diff(scandir($temp_dir), ['.', '..']);
+        if (empty($extracted_folders)) {
+            unlink($temp_file);
+            $wp_filesystem->delete($temp_dir, true);
+            wp_send_json_error(['message' => __('No files found in the plugin ZIP.', 'the-repo-plugin')]);
+        }
+    
+        $plugin_folder_name = reset($extracted_folders);
+        $plugin_dir = WP_PLUGIN_DIR . '/' . $plugin_folder_name;
+    
+        // Clean up the temporary extraction
+        $wp_filesystem->delete($temp_dir, true);
+    
+        // Check if the plugin is already installed
+        if (is_dir($plugin_dir)) {
+            unlink($temp_file);
+            wp_send_json_error(['message' => __('A plugin with this folder name is already installed: ', 'the-repo-plugin') . $plugin_folder_name]);
+        }
+    
+        // Use Plugin_Upgrader to handle installation
+        $upgrader = new \Plugin_Upgrader(new \WP_Ajax_Upgrader_Skin());
+        $result = $upgrader->install($zip_url);
+    
+        // Clean up temporary file (only if it exists)
+        if (file_exists($temp_file)) {
+            unlink($temp_file);
+        }
+    
+        if (is_wp_error($result)) {
+            wp_send_json_error(['message' => __('Failed to install the plugin.', 'the-repo-plugin')]);
+        }
+    
+        // Check if the plugin was installed successfully
+        if (!$result) {
+            wp_send_json_error(['message' => __('Plugin installation failed. Please try again.', 'the-repo-plugin')]);
+        }
+    
+        wp_send_json_success(['message' => __('Plugin installed successfully! Please activate it from the Plugins page.', 'the-repo-plugin')]);
+    }
+    
+    public function handle_activate_plugin() {
+        // Check user permissions.
+        if (!current_user_can('activate_plugins')) {
+            wp_send_json_error(['message' => __('You do not have permission to activate plugins.', 'the-repo-plugin')]);
+        }
+    
+        // Get the slug from the request.
+        $repo_slug = isset($_POST['slug']) ? sanitize_text_field($_POST['slug']) : '';
+        if (empty($repo_slug)) {
+            wp_send_json_error(['message' => __('Missing plugin slug.', 'the-repo-plugin')]);
+        }
+    
+        // Fetch all installed plugins.
+        $installed_plugins = get_plugins();
+        $plugin_file = false;
+    
+        foreach ($installed_plugins as $file => $data) {
+            // Normalize data for comparison.
+            $plugin_folder = strtolower(dirname($file)); // Folder name.
+            $plugin_basename = strtolower(basename($file, '.php')); // File name without extension.
+            $plugin_title = sanitize_title($data['Name']); // Sanitized plugin name.
+    
+            // Log each comparison for debugging.
+            error_log("Checking installed plugin: Folder: $plugin_folder | File: $plugin_basename | Title: $plugin_title");
+    
+            // Match against folder name, basename, or sanitized title.
+            if (
+                strtolower($repo_slug) === $plugin_folder || 
+                strtolower($repo_slug) === $plugin_basename || 
+                strtolower($repo_slug) === $plugin_title
+            ) {
+                $plugin_file = $file;
+                error_log("Match found for slug: $repo_slug -> File: $plugin_file");
+                break;
+            }
+        }
+    
+        // If the plugin file is not found, return an error.
+        if (!$plugin_file) {
+            error_log("Plugin file not found for slug: $repo_slug");
+            wp_send_json_error(['message' => __('Plugin file not found.', 'the-repo-plugin')]);
+        }
+    
+        // Activate the plugin.
+        activate_plugin($plugin_file);
+    
+        if (is_plugin_active($plugin_file)) {
+            error_log("Plugin activated successfully: $plugin_file");
+            wp_send_json_success(['message' => __('Plugin activated successfully.', 'the-repo-plugin')]);
+        } else {
+            error_log("Failed to activate plugin: $plugin_file");
+            wp_send_json_error(['message' => __('Failed to activate the plugin.', 'the-repo-plugin')]);
+        }
+    }
+    
+    public function handle_deactivate_plugin() {
+        if (!current_user_can('activate_plugins')) {
+            wp_send_json_error(['message' => __('You do not have permission to deactivate plugins.', 'the-repo-plugin')]);
+        }
+    
+        $slug = sanitize_text_field($_POST['slug']);
+        $plugin_file = WP_PLUGIN_DIR . '/' . $slug . '/' . $slug . '.php';
+    
+        if (!file_exists($plugin_file)) {
+            wp_send_json_error(['message' => __('Plugin not found.', 'the-repo-plugin')]);
+        }
+    
+        deactivate_plugins($plugin_file);
+    
+        if (!is_plugin_active($slug . '/' . $slug . '.php')) {
+            wp_send_json_success(['message' => __('Plugin deactivated successfully.', 'the-repo-plugin')]);
+        } else {
+            wp_send_json_error(['message' => __('Failed to deactivate the plugin.', 'the-repo-plugin')]);
+        }
     }
 
     public function render_form() {
@@ -50,7 +307,19 @@ function searchGitHub(query, page) {
         .then(response => response.json())
         .then(data => {
             if (data.results.length > 0) {
-                const resultsHtml = data.results.map(repo => `
+                const resultsHtml = data.results.map(repo => {
+                const pluginFolderName = repo.full_name.split('/')[1]; // Extract folder name
+
+                let buttonHtml;
+                if (repo.is_active) {
+                    buttonHtml = `<button class="deactivate-btn" data-folder="${pluginFolderName}">Deactivate</button>`;
+                } else if (repo.is_installed) {
+                    buttonHtml = `<button class="activate-btn" data-folder="${pluginFolderName}">Activate</button>`;
+                } else {
+                    buttonHtml = `<button class="install-btn" data-repo="${repo.html_url}">Install</button>`;
+                }
+
+                return `
                     <div class="the-repo_card">
                         <div class="content">
                             <h2 class="title">
@@ -58,63 +327,16 @@ function searchGitHub(query, page) {
                             </h2>
                             <p class="description">${repo.description || 'No description available.'}</p>
                             <p class="plugin-website">${repo.homepage ? `<a href="${repo.homepage}" target="_blank" rel="noopener noreferrer" class="link">Visit Plugin Website</a>` : ''}</p>
-                            <button class="install-btn" data-repo="${repo.html_url}">Install</button>
+                            ${buttonHtml}
                         </div>
                     </div>
-                `).join('');
+                `;
+            }).join('');
+
 
                 resultsContainer.innerHTML = resultsHtml;
 
-                // Generate pagination
-                const paginationHtml = generatePagination(data.total_pages, page, query);
-                paginationContainer.innerHTML = paginationHtml;
-
-                // Add event listeners for pagination buttons
-                document.querySelectorAll('.github-page-link').forEach(link => {
-                    link.addEventListener('click', function (e) {
-                        e.preventDefault();
-                        const newPage = parseInt(this.getAttribute('data-page'));
-                        searchGitHub(query, newPage);
-                    });
-                });
-
-                // Add click events to install buttons
-                document.querySelectorAll('.install-btn').forEach(button => {
-                    button.addEventListener('click', function () {
-                        const repoUrl = this.dataset.repo;
-                        const installButton = this;
-
-                        installButton.disabled = true;
-                        installButton.textContent = 'Installing...';
-
-                        fetch(`<?php echo admin_url('admin-ajax.php'); ?>`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/x-www-form-urlencoded',
-                            },
-                            body: new URLSearchParams({
-                                action: 'install_github_plugin',
-                                repo_url: repoUrl,
-                            }),
-                        })
-                            .then(response => response.json())
-                            .then(data => {
-                                if (data.success) {
-                                    alert(data.data.message);
-                                } else {
-                                    alert(data.data.message);
-                                }
-                                installButton.disabled = false;
-                                installButton.textContent = 'Install';
-                            })
-                            .catch(error => {
-                                console.error('Error:', error);
-                                alert('An error occurred while installing the plugin.');
-                                installButton.disabled = false;
-                                installButton.textContent = 'Install';
-                            });
-                    });
-                });
+                addEventListeners();
             } else {
                 resultsContainer.innerHTML = '<p>No results found.</p>';
             }
@@ -123,6 +345,148 @@ function searchGitHub(query, page) {
             console.error(error);
             resultsContainer.innerHTML = '<p>Error fetching results. Please try again later.</p>';
         });
+}
+
+
+function addEventListeners() {
+    document.querySelectorAll('.install-btn').forEach(button => {
+        button.addEventListener('click', function () {
+            const repoUrl = this.dataset.repo;
+            const installButton = this;
+
+            installButton.disabled = true;
+            installButton.textContent = 'Installing...';
+
+            fetch(`<?php echo admin_url('admin-ajax.php'); ?>`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    action: 'install_github_plugin',
+                    repo_url: repoUrl,
+                }),
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert(data.data.message);
+                        installButton.textContent = 'Activate';
+                        installButton.classList.remove('install-btn');
+                        installButton.classList.add('activate-btn');
+                        installButton.disabled = false;
+
+                        addEventListeners();
+                    } else {
+                        alert(data.data.message);
+                        installButton.textContent = 'Install';
+                        installButton.disabled = false;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while installing the plugin.');
+                    installButton.textContent = 'Install';
+                    installButton.disabled = false;
+                });
+        });
+    });
+
+    document.querySelectorAll('.activate-btn').forEach(button => {
+    button.addEventListener('click', function () {
+        const folderName = this.dataset.folder;
+        const activateButton = this;
+
+        if (!folderName) {
+            alert('Error: Missing plugin folder name.');
+            return;
+        }
+
+        // Prevent multiple clicks
+        if (activateButton.disabled) return;
+
+        activateButton.disabled = true;
+        activateButton.textContent = 'Activating...';
+
+        fetch(`<?php echo admin_url('admin-ajax.php'); ?>`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+                action: 'activate_plugin',
+                slug: folderName,
+            }),
+        })
+            .then(response => response.json())
+            .then(data => {
+                console.log(`Response for ${folderName}:`, data);
+
+                if (data.success) {
+                    alert(data.data.message);
+                    activateButton.textContent = 'Deactivate';
+                    activateButton.classList.remove('activate-btn');
+                    activateButton.classList.add('deactivate-btn');
+                } else {
+                    alert(data.data.message);
+                    activateButton.textContent = 'Activate';
+                }
+                activateButton.disabled = false;
+
+                addEventListeners(); // Rebind listeners for new state
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while activating the plugin.');
+                activateButton.textContent = 'Activate';
+                activateButton.disabled = false;
+            });
+    });
+});
+
+
+    document.querySelectorAll('.deactivate-btn').forEach(button => {
+        button.addEventListener('click', function () {
+            const slug = this.dataset.slug;
+            const deactivateButton = this;
+
+            deactivateButton.disabled = true;
+            deactivateButton.textContent = 'Deactivating...';
+
+            fetch(`<?php echo admin_url('admin-ajax.php'); ?>`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    action: 'deactivate_plugin',
+                    slug: slug,
+                }),
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert(data.data.message);
+                        deactivateButton.textContent = 'Activate';
+                        deactivateButton.classList.remove('deactivate-btn');
+                        deactivateButton.classList.add('activate-btn');
+                        deactivateButton.disabled = false;
+
+                        addEventListeners();
+                    } else {
+                        alert(data.data.message);
+                        deactivateButton.textContent = 'Deactivate';
+                        deactivateButton.disabled = false;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while deactivating the plugin.');
+                    deactivateButton.textContent = 'Deactivate';
+                    deactivateButton.disabled = false;
+                });
+        });
+    });
 }
 
 function generatePagination(totalPages, currentPage, query) {
@@ -142,6 +506,7 @@ function generatePagination(totalPages, currentPage, query) {
 
     return html;
 }
+
 
         </script>
         <style>
@@ -220,62 +585,7 @@ function generatePagination(totalPages, currentPage, query) {
         <?php
         return ob_get_clean();
     }
-    
 
-    public function handle_ajax() {
-        if (!isset($_GET['query']) || empty($_GET['query'])) {
-            wp_send_json([]);
-        }
-    
-        $query = sanitize_text_field($_GET['query']);
-        $page = isset($_GET['page']) ? absint($_GET['page']) : 1;
-        $per_page = 12; // Results per page
-        $offset = ($page - 1) * $per_page;
-    
-        // Topics to search for
-        $topics = ['wordpress-plugin', 'wordpress'];
-        $all_results = [];
-    
-        // Fetch results for each topic
-        foreach ($topics as $topic) {
-            $api_query = urlencode($query) . "+topic:" . $topic;
-            $api_url = "{$this->github_base_url}/search/repositories?q=" . $api_query . "&per_page=100";
-    
-            
-    
-            $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
-            if (is_wp_error($response)) {
-                error_log('GitHub API Error for topic ' . $topic . ': ' . $response->get_error_message());
-                continue; // Skip this topic if there's an error
-            }
-    
-            $response_body = wp_remote_retrieve_body($response);
-            $data = json_decode($response_body, true);
-            if (!isset($data['items']) || !is_array($data['items'])) {
-                error_log("Invalid or missing 'items' in API response for topic: $topic");
-                continue;
-            }
-    
-            // Merge the results
-            $all_results = array_merge($all_results, $data['items']);
-        }
-    
-        // Remove duplicate repositories
-        $unique_results = array_map('unserialize', array_unique(array_map('serialize', $all_results)));
-    
-        // Apply the filter to repositories
-        $filtered_results = $this->filter_repositories($unique_results);
-        $paginated_results = array_slice($filtered_results, $offset, $per_page);
-      
-        $response = [
-            'results' => $paginated_results,
-            'total_pages' => ceil(count($filtered_results) / $per_page),
-        ];
-    
-        wp_send_json($response);
-    }
-    
-    
 
     public function filter_repositories($repositories) {
         $results = [];
@@ -294,102 +604,7 @@ function generatePagination(totalPages, currentPage, query) {
         return $results;
     }
 
-    public function handle_install() {
-        // Check permissions
-        if (!current_user_can('install_plugins')) {
-            wp_send_json_error(['message' => __('You do not have permission to install plugins.', 'the-repo-plugin')]);
-        }
-    
-        // Get repo URL from AJAX request
-        $repo_url = isset($_POST['repo_url']) ? esc_url_raw($_POST['repo_url']) : '';
-        if (empty($repo_url)) {
-            wp_send_json_error(['message' => __('Invalid repository URL.', 'the-repo-plugin')]);
-        }
-    
-        // Fetch the latest release
-        $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', $repo_url) . '/releases/latest';
-        $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
-    
-        if (is_wp_error($response)) {
-            wp_send_json_error(['message' => __('Failed to fetch release information.', 'the-repo-plugin')]);
-        }
-    
-        $release_data = json_decode(wp_remote_retrieve_body($response), true);
-        if (empty($release_data['assets'][0]['browser_download_url'])) {
-            wp_send_json_error(['message' => __('No downloadable ZIP found for the latest release.', 'the-repo-plugin')]);
-        }
-    
-        $zip_url = $release_data['assets'][0]['browser_download_url'];
-    
-        // Include required WordPress files
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        require_once ABSPATH . 'wp-admin/includes/plugin.php';
-        require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
-    
-        // Initialize the filesystem
-        global $wp_filesystem;
-        if (!WP_Filesystem()) {
-            wp_send_json_error(['message' => __('Failed to initialize filesystem.', 'the-repo-plugin')]);
-        }
-    
-        // Download the ZIP file
-        $temp_file = download_url($zip_url);
-    
-        if (is_wp_error($temp_file)) {
-            wp_send_json_error(['message' => __('Failed to download the plugin ZIP.', 'the-repo-plugin')]);
-        }
-    
-        // Extract the ZIP to get the folder name
-        $temp_dir = WP_CONTENT_DIR . '/uploads/temp-plugin-extract';
-        if (!wp_mkdir_p($temp_dir)) {
-            wp_send_json_error(['message' => __('Failed to create temporary extraction directory.', 'the-repo-plugin')]);
-        }
-    
-        $unzip_result = unzip_file($temp_file, $temp_dir);
-        if (is_wp_error($unzip_result)) {
-            unlink($temp_file);
-            wp_send_json_error(['message' => __('Failed to extract the plugin ZIP.', 'the-repo-plugin')]);
-        }
-    
-        // Get the folder name
-        $extracted_folders = array_diff(scandir($temp_dir), ['.', '..']);
-        if (empty($extracted_folders)) {
-            unlink($temp_file);
-            wp_send_json_error(['message' => __('No files found in the plugin ZIP.', 'the-repo-plugin')]);
-        }
-    
-        $plugin_folder_name = reset($extracted_folders);
-        $plugin_dir = WP_PLUGIN_DIR . '/' . $plugin_folder_name;
-    
-        // Clean up the temporary extraction
-        $wp_filesystem->delete($temp_dir, true);
-    
-        // Check if the plugin is already installed
-        if (is_dir($plugin_dir)) {
-            unlink($temp_file);
-            wp_send_json_error(['message' => __('A plugin with this folder name is already installed: ', 'the-repo-plugin') . $plugin_folder_name]);
-        }
-    
-        // Use Plugin_Upgrader to handle installation
-        $upgrader = new \Plugin_Upgrader(new \WP_Ajax_Upgrader_Skin());
-        $result = $upgrader->install($zip_url);
-    
-        // Clean up temporary file
-        unlink($temp_file);
-    
-        if (is_wp_error($result)) {
-            wp_send_json_error(['message' => __('Failed to install the plugin.', 'the-repo-plugin')]);
-        }
-    
-        // Check if the plugin was installed successfully
-        if (!$result) {
-            wp_send_json_error(['message' => __('Plugin installation failed. Please try again.', 'the-repo-plugin')]);
-        }
-    
-        wp_send_json_success(['message' => __('Plugin installed successfully! Please activate it from the Plugins page.', 'the-repo-plugin')]);
-    }
-    
-    
+     
  
 }
 
