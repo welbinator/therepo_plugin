@@ -130,40 +130,60 @@ class GitHubPluginSearch {
         if (!isset($_GET['query']) || empty($_GET['query'])) {
             wp_send_json([]);
         }
-
+    
         $query = sanitize_text_field($_GET['query']);
         $page = isset($_GET['page']) ? absint($_GET['page']) : 1;
         $per_page = 12; // Results per page
         $offset = ($page - 1) * $per_page;
-
-        // Construct the GitHub API search query
-        $api_query = "topic:wordpress-plugin OR topic:wordpress";
-        if (!empty($query)) {
-            $api_query = urlencode($query) . " " . $api_query;
+    
+        // Topics to search for
+        $topics = ['wordpress-plugin', 'wordpress'];
+        $all_results = [];
+    
+        // Fetch results for each topic
+        foreach ($topics as $topic) {
+            $api_query = urlencode($query) . "+topic:" . $topic;
+            $api_url = "{$this->github_base_url}/search/repositories?q=" . $api_query . "&per_page=100";
+    
+            // Log the URL for debugging
+            error_log('Constructed GitHub API URL: ' . $api_url);
+    
+            $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
+            if (is_wp_error($response)) {
+                error_log('GitHub API Error for topic ' . $topic . ': ' . $response->get_error_message());
+                continue; // Skip this topic if there's an error
+            }
+    
+            $response_body = wp_remote_retrieve_body($response);
+            $data = json_decode($response_body, true);
+            if (!isset($data['items']) || !is_array($data['items'])) {
+                error_log("Invalid or missing 'items' in API response for topic: $topic");
+                continue;
+            }
+    
+            // Merge the results
+            $all_results = array_merge($all_results, $data['items']);
         }
-        $api_url = "{$this->github_base_url}/search/repositories?q=" . $api_query . "&per_page=100";
-
-        $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
-        if (is_wp_error($response)) {
-            wp_send_json([]);
-        }
-
-        $response_body = wp_remote_retrieve_body($response);
-        $data = json_decode($response_body, true);
-        if (!isset($data['items']) || !is_array($data['items'])) {
-            wp_send_json([]);
-        }
-
-        $filtered_results = $this->filter_repositories($data['items']);
+    
+        // Remove duplicate repositories
+        $unique_results = array_map('unserialize', array_unique(array_map('serialize', $all_results)));
+    
+        // Apply the filter to repositories
+        $filtered_results = $this->filter_repositories($unique_results);
         $paginated_results = array_slice($filtered_results, $offset, $per_page);
-
+    
+        // Log the count of filtered results
+        error_log("Filtered results count: " . count($filtered_results));
+    
         $response = [
             'results' => $paginated_results,
             'total_pages' => ceil(count($filtered_results) / $per_page),
         ];
-
+    
         wp_send_json($response);
     }
+    
+    
 
     public function filter_repositories($repositories) {
         $results = [];
