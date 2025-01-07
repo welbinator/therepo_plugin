@@ -18,7 +18,7 @@ if (!defined('ABSPATH')) {
 define('THE_REPO_PLUGIN_VERSION', '1.0.0');
 
 // Include necessary files.
-require_once plugin_dir_path(__FILE__) . 'includes/shortcodes/search-github-shortcode.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-github-plugin-search.php';
 require_once plugin_dir_path(__FILE__) . 'admin/admin-settings.php';
 
 add_action('init', function() {
