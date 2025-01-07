@@ -333,6 +333,15 @@ function generatePagination(totalPages, currentPage, query) {
             wp_send_json_error(['message' => __('Failed to initialize filesystem.', 'the-repo-plugin')]);
         }
     
+        // Check if the plugin already exists
+        $slug = basename($repo_url); // Use the repo name as the plugin folder slug
+        $installed_plugins = get_plugins();
+        foreach ($installed_plugins as $plugin_path => $plugin_data) {
+            if (strpos($plugin_path, $slug) !== false) {
+                wp_send_json_error(['message' => __('A plugin with this slug is already installed.', 'the-repo-plugin')]);
+            }
+        }
+    
         // Download the ZIP file
         $temp_file = download_url($zip_url);
     
@@ -343,7 +352,7 @@ function generatePagination(totalPages, currentPage, query) {
     
         // Use Plugin_Upgrader to handle installation
         $upgrader = new \Plugin_Upgrader(new \WP_Ajax_Upgrader_Skin());
-
+    
         // Perform the installation
         $result = $upgrader->install($zip_url);
     
@@ -364,6 +373,8 @@ function generatePagination(totalPages, currentPage, query) {
     
         wp_send_json_success(['message' => __('Plugin installed successfully! Please activate it from the Plugins page.', 'the-repo-plugin')]);
     }
+    
+    
     
     
     
