@@ -30,21 +30,21 @@ class GitHubPluginSearch {
             <div id="github-search-results" class="grid"></div>
             <div id="github-search-pagination"></div>
         </div>
-
+    
         <script>
             document.getElementById('github-search-form').addEventListener('submit', function (e) {
                 e.preventDefault();
                 const query = document.getElementById('github-search-query').value.trim();
                 searchGitHub(query, 1);
             });
-
+    
             function searchGitHub(query, page) {
                 const resultsContainer = document.getElementById('github-search-results');
                 const paginationContainer = document.getElementById('github-search-pagination');
-
+    
                 resultsContainer.innerHTML = 'Searching...';
                 paginationContainer.innerHTML = '';
-
+    
                 fetch(`<?php echo admin_url('admin-ajax.php'); ?>?action=github_plugin_search&query=${encodeURIComponent(query)}&page=${page}`)
                     .then(response => response.json())
                     .then(data => {
@@ -52,26 +52,35 @@ class GitHubPluginSearch {
                             const resultsHtml = data.results.map(repo => `
                                 <div class="the-repo_card">
                                     <div class="content">
-                                    <h2 class="title">${repo.full_name}</h2>
-                                    <p class="description">${repo.description || 'No description available.'}</p>
-                                    ${repo.homepage ? `<a href="${repo.homepage}" target="_blank" rel="noopener noreferrer" class="link">Visit Website</a>` : ''}
+                                        <h2 class="title">
+                                            <a href="${repo.html_url}" target="_blank" rel="noopener noreferrer">${repo.full_name}</a>
+                                        </h2>
+                                        <p class="description">${repo.description || 'No description available.'}</p>
+                                        <p class="plugin-website">${repo.homepage ? `<a href="${repo.homepage}" target="_blank" rel="noopener noreferrer" class="link">Visit Plugin Website</a>` : ''}</p>
+                                        <button class="install-btn" data-repo="${repo.html_url}">Install</button>
                                     </div>
                                 </div>
-                                `).join('');
-
-                                document.querySelector('#github-search-results').innerHTML = resultsHtml;
-
-
+                            `).join('');
+    
+                            resultsContainer.innerHTML = resultsHtml;
+    
                             // Generate pagination
                             const paginationHtml = generatePagination(data.total_pages, page, query);
                             paginationContainer.innerHTML = paginationHtml;
-
+    
                             // Add event listeners for pagination buttons
                             document.querySelectorAll('.github-page-link').forEach(link => {
                                 link.addEventListener('click', function (e) {
                                     e.preventDefault();
                                     const newPage = parseInt(this.getAttribute('data-page'));
                                     searchGitHub(query, newPage);
+                                });
+                            });
+    
+                            // Add click events to install buttons (no functionality yet)
+                            document.querySelectorAll('.install-btn').forEach(button => {
+                                button.addEventListener('click', function () {
+                                    alert(`Install button clicked for ${this.dataset.repo}`);
                                 });
                             });
                         } else {
@@ -83,28 +92,28 @@ class GitHubPluginSearch {
                         resultsContainer.innerHTML = '<p>Error fetching results. Please try again later.</p>';
                     });
             }
-
+    
             function generatePagination(totalPages, currentPage, query) {
                 let html = '';
-
+    
                 if (currentPage > 1) {
                     html += `<a href="#" class="github-page-link" data-page="${currentPage - 1}">Previous</a>`;
                 }
-
+    
                 for (let i = 1; i <= totalPages; i++) {
                     html += `<a href="#" class="github-page-link ${i === currentPage ? 'active' : ''}" data-page="${i}">${i}</a>`;
                 }
-
+    
                 if (currentPage < totalPages) {
                     html += `<a href="#" class="github-page-link" data-page="${currentPage + 1}">Next</a>`;
                 }
-
+    
                 return html;
             }
         </script>
         <style>
             #github-plugin-search {
-                max-width: 1100px;
+                max-width: 95%;
                 margin: 20px 0;
             }
             #github-search-results {
@@ -125,63 +134,60 @@ class GitHubPluginSearch {
                 font-weight: bold;
                 background-color: #f0f0f0;
             }
-            /* Container styling */
-            .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 2rem 1rem;
-            }
-
-            /* Grid layout */
             .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 1.5rem;
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 1.5rem;
             }
-
-            /* Card styling */
             .the-repo_card {
-            background-color: white;
-            border-radius: 0.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
-            padding: .75rem;
-
+                background-color: white;
+                overflow: hidden;
+                padding: .75rem;
+                border: 1px solid #cdcdcd;
             }
-
-            /* Content inside the card */
             .content {
-            padding: .5rem;
+                padding: .5rem;
             }
-
-            /* Title styling */
-            .title {
-            font-size: 1.25rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
+            .title a {
+                font-size: 1.25rem;
+                font-weight: 600;
+                text-decoration: none;
+                color: #000;
             }
-
-            /* Description styling */
+            .title a:hover {
+                text-decoration: underline;
+            }
             .description {
-            color: #4a5568; /* Gray color */
-            margin-bottom: 1rem;
+                color: #4a5568; /* Gray color */
+                margin-bottom: 1rem;
             }
-
-            /* Link styling */
             .link {
-            color: #3182ce; /* Blue color */
-            text-decoration: none;
-            transition: color 0.2s ease-in-out;
+                color: #3182ce; /* Blue color */
+                text-decoration: none;
+                transition: color 0.2s ease-in-out;
             }
-
             .link:hover {
-            color: #2b6cb0; /* Darker blue color */
+                color: #2b6cb0; /* Darker blue color */
             }
-
+            .install-btn {
+                display: inline-block;
+                margin-top: 1rem;
+                padding: 0.5rem 1rem;
+                background-color: #3182ce;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                transition: background-color 0.3s ease;
+            }
+            .install-btn:hover {
+                background-color: #2b6cb0;
+            }
         </style>
         <?php
         return ob_get_clean();
     }
+    
 
     public function handle_ajax() {
         if (!isset($_GET['query']) || empty($_GET['query'])) {
