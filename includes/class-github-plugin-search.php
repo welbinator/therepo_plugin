@@ -637,26 +637,48 @@ function generatePagination(totalPages, currentPage, query) {
 
     public function filter_repositories($repositories) {
         $results = [];
-    
         foreach ($repositories as $repo) {
             if (isset($repo['topics']) && in_array('wordpress-plugin', $repo['topics'])) {
-                $results[] = [
-                    'full_name'   => $repo['full_name'],
-                    'html_url'    => $repo['html_url'],
-                    'description' => $repo['description'] ?: 'No description available.',
-                    'homepage'    => !empty($repo['homepage']) ? esc_url($repo['homepage']) : null, // Add homepage
-                ];
+                // Check if the repository has releases
+                $repo_url = $repo['html_url'];
+                $has_releases = $this->has_releases($repo_url);
+    
+                if ($has_releases) {
+                    $results[] = [
+                        'full_name'   => $repo['full_name'],
+                        'html_url'    => $repo['html_url'],
+                        'description' => $repo['description'] ?: 'No description available.',
+                        'homepage'    => !empty($repo['homepage']) ? esc_url($repo['homepage']) : null, // Add homepage
+                    ];
+                }
             }
         }
-    
         return $results;
     }
     
-
+    
+    private function has_releases($repo_url) {
+        // Convert GitHub repo URL to API releases endpoint
+        $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', rtrim($repo_url, '/')) . '/releases';
+    
+        // Perform the request
+        $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
+    
+        // Check for errors in the response
+        if (is_wp_error($response)) {
+            error_log('GitHub API error for releases: ' . $response->get_error_message());
+            return false;
+        }
+    
+        // Parse the response body
+        $releases = json_decode(wp_remote_retrieve_body($response), true);
+    
+        // Check if the response contains valid releases
+        return !empty($releases) && is_array($releases);
+    }
+    
      
  
 }
-
-
 
 new GitHubPluginSearch();
