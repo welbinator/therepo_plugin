@@ -73,23 +73,33 @@ class GitHubPluginSearch {
         foreach ($filtered_results as &$repo) {
             $repo_slug = $repo['full_name']; // Example: 'the-events-calendar/event-tickets'
             $repo_folder = strtolower(explode('/', $repo_slug)[1]); // Extract the folder name.
-    
+        
             $repo['is_installed'] = false;
             $repo['is_active'] = false;
-    
+        
+            // Fetch the latest release data for additional checks
+            $repo_url = $repo['html_url'];
+            $latest_release_zip_name = $this->get_latest_release_zip_name($repo_url);
+        
             foreach ($installed_plugins as $plugin_file => $plugin_data) {
                 $plugin_folder = strtolower(dirname($plugin_file));
                 $plugin_basename = strtolower(basename($plugin_file, '.php'));
                 $plugin_title = sanitize_title($plugin_data['Name']);
-    
-                // Match against folder name, basename, or sanitized title.
-                if ($repo_folder === $plugin_folder || $repo_folder === $plugin_basename || $repo_folder === $plugin_title) {
+        
+                // Match against folder name, basename, sanitized title, or latest release ZIP name
+                if (
+                    $repo_folder === $plugin_folder || 
+                    $repo_folder === $plugin_basename || 
+                    $repo_folder === $plugin_title || 
+                    ($latest_release_zip_name && $plugin_folder === $latest_release_zip_name)
+                ) {
                     $repo['is_installed'] = true;
                     $repo['is_active'] = is_plugin_active($plugin_file);
                     break;
                 }
             }
         }
+        
     
         $paginated_results = array_slice($filtered_results, $offset, $per_page);
     
@@ -101,6 +111,27 @@ class GitHubPluginSearch {
         wp_send_json($response);
     }
     
+    private function get_latest_release_zip_name($repo_url) {
+        $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', rtrim($repo_url, '/')) . '/releases/latest';
+    
+        $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
+    
+        if (is_wp_error($response)) {
+            error_log('[DEBUG] Failed to fetch latest release for ' . $repo_url . ': ' . $response->get_error_message());
+            return null;
+        }
+    
+        $release_data = json_decode(wp_remote_retrieve_body($response), true);
+    
+        if (isset($release_data['assets'][0]['name'])) {
+            $zip_name = strtolower(pathinfo($release_data['assets'][0]['name'], PATHINFO_FILENAME));
+            error_log('[DEBUG] Latest release ZIP name for ' . $repo_url . ': ' . $zip_name);
+            return $zip_name;
+        }
+    
+        error_log('[DEBUG] No ZIP name found for latest release of ' . $repo_url);
+        return null;
+    }
     
     
     public function handle_install() {
@@ -123,12 +154,28 @@ class GitHubPluginSearch {
         }
     
         $release_data = json_decode(wp_remote_retrieve_body($response), true);
-        if (empty($release_data['assets'][0]['browser_download_url'])) {
-            error_log('[DEBUG] No downloadable ZIP found for the latest release.');
-            wp_send_json_error(['message' => __('No downloadable ZIP found for the latest release.', 'the-repo-plugin')]);
+        $zip_url = '';
+        $assets = isset($release_data['assets']) ? $release_data['assets'] : [];
+
+        // Search for the first custom ZIP asset
+        foreach ($assets as $asset) {
+            if (isset($asset['name']) && isset($asset['browser_download_url']) && str_ends_with($asset['name'], '.zip')) {
+                $zip_url = $asset['browser_download_url'];
+                break;
+            }
         }
-    
-        $zip_url = $release_data['assets'][0]['browser_download_url'];
+
+
+        if (empty($zip_url)) {
+            if (!empty($release_data['zipball_url'])) {
+                $zip_url = $release_data['zipball_url'];
+                error_log('[DEBUG] Falling back to Source code (zip) for the latest release.');
+            } else {
+                error_log('[DEBUG] No downloadable ZIP found for the latest release.');
+                wp_send_json_error(['message' => __('No downloadable ZIP found for the latest release.', 'the-repo-plugin')]);
+            }
+        }
+
     
         require_once ABSPATH . 'wp-admin/includes/file.php';
         require_once ABSPATH . 'wp-admin/includes/plugin.php';
@@ -164,45 +211,64 @@ class GitHubPluginSearch {
     
         $extracted_folders = array_diff(scandir($temp_dir), ['.', '..']);
         error_log('[DEBUG] Extracted folders: ' . print_r($extracted_folders, true));
-    
+
         if (empty($extracted_folders)) {
             unlink($temp_file);
             $wp_filesystem->delete($temp_dir, true);
             error_log('[DEBUG] No files found in the plugin ZIP.');
-            wp_send_json_error(['message' => __('No files found in the plugin ZIP.', 'the-repo-plugin')]);
+            wp_send_json_error(['message' => __('No files found in the ZIP.', 'the-repo-plugin')]);
         }
-    
-        $plugin_folder_name = reset($extracted_folders);
-        error_log('[DEBUG] Plugin folder name: ' . $plugin_folder_name);
-    
+
+        // Check if the extracted ZIP has a root folder
+        if (count($extracted_folders) === 1 && is_dir($temp_dir . '/' . reset($extracted_folders))) {
+            // Proper root folder exists
+            $plugin_folder_name = reset($extracted_folders);
+        } else {
+            // No root folder - Create one
+            $plugin_folder_name = sanitize_file_name(basename($temp_file, '.zip'));
+            $new_plugin_dir = $temp_dir . '/' . $plugin_folder_name;
+
+            if (!mkdir($new_plugin_dir, 0755)) {
+                unlink($temp_file);
+                $wp_filesystem->delete($temp_dir, true);
+                error_log('[DEBUG] Failed to create root folder for plugin.');
+                wp_send_json_error(['message' => __('Failed to create root folder for plugin.', 'the-repo-plugin')]);
+            }
+
+            // Move all extracted files into the new root folder
+            foreach ($extracted_folders as $file) {
+                rename($temp_dir . '/' . $file, $new_plugin_dir . '/' . $file);
+            }
+        }
+
+        // Verify the new plugin directory
         $plugin_dir = WP_PLUGIN_DIR . '/' . $plugin_folder_name;
-    
-        // Move extracted plugin to plugins directory
+
         if (!rename($temp_dir . '/' . $plugin_folder_name, $plugin_dir)) {
             unlink($temp_file);
             $wp_filesystem->delete($temp_dir, true);
             error_log('[DEBUG] Failed to move plugin to the plugins directory.');
             wp_send_json_error(['message' => __('Failed to move plugin to the plugins directory.', 'the-repo-plugin')]);
         }
-    
+
+        // Clean up temporary files
         $wp_filesystem->delete($temp_dir, true);
-    
         if (file_exists($temp_file)) {
             unlink($temp_file);
         }
-    
+
         if (!is_dir($plugin_dir)) {
             error_log('[DEBUG] Plugin directory was not created: ' . $plugin_folder_name);
             wp_send_json_error(['message' => __('Plugin installation failed.', 'the-repo-plugin')]);
         }
-    
-        // Final debug before responding
+
         error_log('[DEBUG] Successfully installed plugin. Folder name: ' . $plugin_folder_name);
-    
+
         wp_send_json_success([
             'message' => __('Plugin installed successfully! Please activate it from the Plugins page.', 'the-repo-plugin'),
-            'folder_name' => $plugin_folder_name, // Include the folder name in the response
+            'folder_name' => $plugin_folder_name,
         ]);
+
     }
     
     
@@ -213,16 +279,14 @@ class GitHubPluginSearch {
     
         $repo_slug = isset($_POST['slug']) ? sanitize_text_field($_POST['slug']) : '';
         if (empty($repo_slug)) {
-            error_log('[DEBUG] Missing plugin slug in activate_plugin request.');
             wp_send_json_error(['message' => __('Missing plugin slug.', 'the-repo-plugin')]);
         }
     
         error_log('[DEBUG] Attempting to activate plugin with slug: ' . $repo_slug);
     
-        // Ensure `$installed_plugins` is defined
-        $installed_plugins = get_plugins();
+        $installed_plugins = get_plugins(); // Fetch all installed plugins
     
-        // Find the plugin file
+        // Match plugin file by folder name, basename, or slug
         $plugin_file = $this->find_plugin_file($installed_plugins, $repo_slug);
     
         if (!$plugin_file) {
@@ -242,7 +306,7 @@ class GitHubPluginSearch {
         error_log('[DEBUG] Plugin activated successfully: ' . $plugin_file);
         wp_send_json_success(['message' => __('Plugin activated successfully.', 'the-repo-plugin')]);
     }
-       
+    
     
     public function handle_deactivate_plugin() {
         if (!current_user_can('activate_plugins')) {
@@ -254,24 +318,34 @@ class GitHubPluginSearch {
             wp_send_json_error(['message' => __('Missing plugin slug.', 'the-repo-plugin')]);
         }
     
-        $installed_plugins = get_plugins();
+        error_log('[DEBUG] Attempting to deactivate plugin with slug: ' . $repo_slug);
+    
+        $installed_plugins = get_plugins(); // Fetch all installed plugins
+    
+        // Match plugin file by folder name, basename, or slug
         $plugin_file = $this->find_plugin_file($installed_plugins, $repo_slug);
     
         if (!$plugin_file) {
+            error_log('[DEBUG] Plugin file not found for slug: ' . $repo_slug);
             wp_send_json_error(['message' => __('Plugin not found.', 'the-repo-plugin')]);
         }
     
         deactivate_plugins($plugin_file);
     
         if (!is_plugin_active($plugin_file)) {
+            error_log('[DEBUG] Plugin deactivated successfully: ' . $plugin_file);
             wp_send_json_success(['message' => __('Plugin deactivated successfully.', 'the-repo-plugin')]);
         } else {
             wp_send_json_error(['message' => __('Failed to deactivate the plugin.', 'the-repo-plugin')]);
         }
     }
     
+    
     private function find_plugin_file($installed_plugins, $repo_slug) {
         error_log('[DEBUG] Searching for plugin file with slug: ' . $repo_slug);
+    
+        // Normalize slug for matching
+        $normalized_slug = strtolower($repo_slug);
     
         foreach ($installed_plugins as $file => $data) {
             $plugin_folder = strtolower(dirname($file));
@@ -280,20 +354,46 @@ class GitHubPluginSearch {
     
             error_log("[DEBUG] Checking plugin: Folder: $plugin_folder, Basename: $plugin_basename, Title: $plugin_title");
     
+            // Match against folder name, basename, or sanitized title
             if (
-                strtolower($repo_slug) === $plugin_folder || 
-                strtolower($repo_slug) === $plugin_basename || 
-                strtolower($repo_slug) === $plugin_title ||
-                strpos($plugin_title, strtolower($repo_slug)) !== false
+                $plugin_folder === $normalized_slug || 
+                $plugin_basename === $normalized_slug || 
+                $plugin_title === $normalized_slug
             ) {
                 error_log('[DEBUG] Match found: ' . $file);
                 return $file;
+            }
+    
+            // Check if the slug is contained within the folder name or title
+            if (
+                strpos($plugin_folder, $normalized_slug) !== false || 
+                strpos($plugin_title, $normalized_slug) !== false
+            ) {
+                error_log('[DEBUG] Partial match found: ' . $file);
+                return $file;
+            }
+        }
+    
+        // Fallback: Try matching latest release ZIP name
+        $latest_release_zip_name = $this->get_latest_release_zip_name("https://github.com/$repo_slug");
+        if ($latest_release_zip_name) {
+            $normalized_zip_name = strtolower($latest_release_zip_name);
+            foreach ($installed_plugins as $file => $data) {
+                $plugin_folder = strtolower(dirname($file));
+                if (
+                    $plugin_folder === $normalized_zip_name || 
+                    strpos($plugin_folder, $normalized_zip_name) !== false
+                ) {
+                    error_log('[DEBUG] Match found using ZIP name: ' . $file);
+                    return $file;
+                }
             }
         }
     
         error_log('[DEBUG] No match found for slug: ' . $repo_slug);
         return false;
     }
+    
     
     
 
@@ -637,20 +737,59 @@ function generatePagination(totalPages, currentPage, query) {
 
     public function filter_repositories($repositories) {
         $results = [];
+        $cached_releases = [];
     
         foreach ($repositories as $repo) {
             if (isset($repo['topics']) && in_array('wordpress-plugin', $repo['topics'])) {
-                $results[] = [
-                    'full_name'   => $repo['full_name'],
-                    'html_url'    => $repo['html_url'],
-                    'description' => $repo['description'] ?: 'No description available.',
-                    'homepage'    => !empty($repo['homepage']) ? esc_url($repo['homepage']) : null, // Add homepage
-                ];
+                $repo_url = $repo['html_url'];
+    
+                // Check if releases are cached
+                $cache_key = 'repo_releases_' . md5($repo_url);
+                if (isset($cached_releases[$repo_url])) {
+                    $has_releases = $cached_releases[$repo_url];
+                } else {
+                    $cached = get_transient($cache_key);
+                    if ($cached !== false) {
+                        $has_releases = $cached;
+                    } else {
+                        // If not cached, check for releases
+                        $has_releases = $this->has_releases($repo_url);
+                        set_transient($cache_key, $has_releases, DAY_IN_SECONDS);
+                    }
+                    $cached_releases[$repo_url] = $has_releases;
+                }
+    
+                if ($has_releases) {
+                    $results[] = [
+                        'full_name'   => $repo['full_name'],
+                        'html_url'    => $repo['html_url'],
+                        'description' => $repo['description'] ?: 'No description available.',
+                        'homepage'    => !empty($repo['homepage']) ? esc_url($repo['homepage']) : null,
+                    ];
+                }
             }
         }
     
         return $results;
     }
+    
+    
+    private function has_releases($repo_url) {
+        $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', rtrim($repo_url, '/')) . '/releases';
+    
+        $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
+    
+        if (is_wp_error($response)) {
+            error_log('GitHub API error for releases: ' . $response->get_error_message());
+            return false;
+        }
+    
+        $releases = json_decode(wp_remote_retrieve_body($response), true);
+    
+        // Return true if releases exist and are valid
+        return !empty($releases) && is_array($releases);
+    }
+    
     
 
      

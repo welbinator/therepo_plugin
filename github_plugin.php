@@ -24,3 +24,4 @@ require_once plugin_dir_path(__FILE__) . 'admin/admin-settings.php';
 add_action('init', function() {
     delete_transient('github_search_' . md5('youtube'));
 });
+
