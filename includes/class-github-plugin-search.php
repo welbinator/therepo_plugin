@@ -123,12 +123,28 @@ class GitHubPluginSearch {
         }
     
         $release_data = json_decode(wp_remote_retrieve_body($response), true);
-        if (empty($release_data['assets'][0]['browser_download_url'])) {
-            error_log('[DEBUG] No downloadable ZIP found for the latest release.');
-            wp_send_json_error(['message' => __('No downloadable ZIP found for the latest release.', 'the-repo-plugin')]);
+        $zip_url = '';
+        $assets = isset($release_data['assets']) ? $release_data['assets'] : [];
+
+        // Search for the first custom ZIP asset
+        foreach ($assets as $asset) {
+            if (isset($asset['name']) && isset($asset['browser_download_url']) && str_ends_with($asset['name'], '.zip')) {
+                $zip_url = $asset['browser_download_url'];
+                break;
+            }
         }
-    
-        $zip_url = $release_data['assets'][0]['browser_download_url'];
+
+// Fallback to "Source code (zip)" if no custom ZIP asset is found
+if (empty($zip_url)) {
+    if (!empty($release_data['zipball_url'])) {
+        $zip_url = $release_data['zipball_url'];
+        error_log('[DEBUG] Falling back to Source code (zip) for the latest release.');
+    } else {
+        error_log('[DEBUG] No downloadable ZIP found for the latest release.');
+        wp_send_json_error(['message' => __('No downloadable ZIP found for the latest release.', 'the-repo-plugin')]);
+    }
+}
+
     
         require_once ABSPATH . 'wp-admin/includes/file.php';
         require_once ABSPATH . 'wp-admin/includes/plugin.php';
