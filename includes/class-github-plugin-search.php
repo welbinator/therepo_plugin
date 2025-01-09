@@ -33,13 +33,16 @@ class GitHubPluginSearch {
         $per_page = 12; // Results per page
         $offset = ($page - 1) * $per_page;
     
+        // Get the date 6 months ago
+        $six_months_ago = date('Y-m-d', strtotime('-6 months'));
+    
         // Topics to search for
         $topics = ['wordpress-plugin'];
         $all_results = [];
     
         // Fetch results for each topic
         foreach ($topics as $topic) {
-            $api_query = urlencode($query) . "+topic:" . $topic;
+            $api_query = urlencode($query) . "+topic:" . $topic . "+pushed:>=" . $six_months_ago;
             $api_url = "{$this->github_base_url}/search/repositories?q=" . $api_query . "&per_page=100";
     
             $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
@@ -70,17 +73,15 @@ class GitHubPluginSearch {
         foreach ($filtered_results as &$repo) {
             $repo_slug = $repo['full_name']; // Example: 'the-events-calendar/event-tickets'
             $repo_folder = strtolower(explode('/', $repo_slug)[1]); // Extract the folder name.
-        
-            // Fetch all installed plugins.
-            $installed_plugins = get_plugins();
+    
             $repo['is_installed'] = false;
             $repo['is_active'] = false;
-        
+    
             foreach ($installed_plugins as $plugin_file => $plugin_data) {
                 $plugin_folder = strtolower(dirname($plugin_file));
                 $plugin_basename = strtolower(basename($plugin_file, '.php'));
                 $plugin_title = sanitize_title($plugin_data['Name']);
-        
+    
                 // Match against folder name, basename, or sanitized title.
                 if ($repo_folder === $plugin_folder || $repo_folder === $plugin_basename || $repo_folder === $plugin_title) {
                     $repo['is_installed'] = true;
@@ -89,7 +90,6 @@ class GitHubPluginSearch {
                 }
             }
         }
-        
     
         $paginated_results = array_slice($filtered_results, $offset, $per_page);
     
@@ -100,6 +100,7 @@ class GitHubPluginSearch {
     
         wp_send_json($response);
     }
+    
     
     
     public function handle_install() {
