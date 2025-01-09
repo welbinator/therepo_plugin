@@ -180,45 +180,64 @@ if (empty($zip_url)) {
     
         $extracted_folders = array_diff(scandir($temp_dir), ['.', '..']);
         error_log('[DEBUG] Extracted folders: ' . print_r($extracted_folders, true));
-    
+
         if (empty($extracted_folders)) {
             unlink($temp_file);
             $wp_filesystem->delete($temp_dir, true);
             error_log('[DEBUG] No files found in the plugin ZIP.');
-            wp_send_json_error(['message' => __('No files found in the plugin ZIP.', 'the-repo-plugin')]);
+            wp_send_json_error(['message' => __('No files found in the ZIP.', 'the-repo-plugin')]);
         }
-    
-        $plugin_folder_name = reset($extracted_folders);
-        error_log('[DEBUG] Plugin folder name: ' . $plugin_folder_name);
-    
+
+        // Check if the extracted ZIP has a root folder
+        if (count($extracted_folders) === 1 && is_dir($temp_dir . '/' . reset($extracted_folders))) {
+            // Proper root folder exists
+            $plugin_folder_name = reset($extracted_folders);
+        } else {
+            // No root folder - Create one
+            $plugin_folder_name = sanitize_file_name(basename($temp_file, '.zip'));
+            $new_plugin_dir = $temp_dir . '/' . $plugin_folder_name;
+
+            if (!mkdir($new_plugin_dir, 0755)) {
+                unlink($temp_file);
+                $wp_filesystem->delete($temp_dir, true);
+                error_log('[DEBUG] Failed to create root folder for plugin.');
+                wp_send_json_error(['message' => __('Failed to create root folder for plugin.', 'the-repo-plugin')]);
+            }
+
+            // Move all extracted files into the new root folder
+            foreach ($extracted_folders as $file) {
+                rename($temp_dir . '/' . $file, $new_plugin_dir . '/' . $file);
+            }
+        }
+
+        // Verify the new plugin directory
         $plugin_dir = WP_PLUGIN_DIR . '/' . $plugin_folder_name;
-    
-        // Move extracted plugin to plugins directory
+
         if (!rename($temp_dir . '/' . $plugin_folder_name, $plugin_dir)) {
             unlink($temp_file);
             $wp_filesystem->delete($temp_dir, true);
             error_log('[DEBUG] Failed to move plugin to the plugins directory.');
             wp_send_json_error(['message' => __('Failed to move plugin to the plugins directory.', 'the-repo-plugin')]);
         }
-    
+
+        // Clean up temporary files
         $wp_filesystem->delete($temp_dir, true);
-    
         if (file_exists($temp_file)) {
             unlink($temp_file);
         }
-    
+
         if (!is_dir($plugin_dir)) {
             error_log('[DEBUG] Plugin directory was not created: ' . $plugin_folder_name);
             wp_send_json_error(['message' => __('Plugin installation failed.', 'the-repo-plugin')]);
         }
-    
-        // Final debug before responding
+
         error_log('[DEBUG] Successfully installed plugin. Folder name: ' . $plugin_folder_name);
-    
+
         wp_send_json_success([
             'message' => __('Plugin installed successfully! Please activate it from the Plugins page.', 'the-repo-plugin'),
-            'folder_name' => $plugin_folder_name, // Include the folder name in the response
+            'folder_name' => $plugin_folder_name,
         ]);
+
     }
     
     
@@ -653,20 +672,59 @@ function generatePagination(totalPages, currentPage, query) {
 
     public function filter_repositories($repositories) {
         $results = [];
+        $cached_releases = [];
     
         foreach ($repositories as $repo) {
             if (isset($repo['topics']) && in_array('wordpress-plugin', $repo['topics'])) {
-                $results[] = [
-                    'full_name'   => $repo['full_name'],
-                    'html_url'    => $repo['html_url'],
-                    'description' => $repo['description'] ?: 'No description available.',
-                    'homepage'    => !empty($repo['homepage']) ? esc_url($repo['homepage']) : null, // Add homepage
-                ];
+                $repo_url = $repo['html_url'];
+    
+                // Check if releases are cached
+                $cache_key = 'repo_releases_' . md5($repo_url);
+                if (isset($cached_releases[$repo_url])) {
+                    $has_releases = $cached_releases[$repo_url];
+                } else {
+                    $cached = get_transient($cache_key);
+                    if ($cached !== false) {
+                        $has_releases = $cached;
+                    } else {
+                        // If not cached, check for releases
+                        $has_releases = $this->has_releases($repo_url);
+                        set_transient($cache_key, $has_releases, DAY_IN_SECONDS);
+                    }
+                    $cached_releases[$repo_url] = $has_releases;
+                }
+    
+                if ($has_releases) {
+                    $results[] = [
+                        'full_name'   => $repo['full_name'],
+                        'html_url'    => $repo['html_url'],
+                        'description' => $repo['description'] ?: 'No description available.',
+                        'homepage'    => !empty($repo['homepage']) ? esc_url($repo['homepage']) : null,
+                    ];
+                }
             }
         }
     
         return $results;
     }
+    
+    
+    private function has_releases($repo_url) {
+        $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', rtrim($repo_url, '/')) . '/releases';
+    
+        $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
+    
+        if (is_wp_error($response)) {
+            error_log('GitHub API error for releases: ' . $response->get_error_message());
+            return false;
+        }
+    
+        $releases = json_decode(wp_remote_retrieve_body($response), true);
+    
+        // Return true if releases exist and are valid
+        return !empty($releases) && is_array($releases);
+    }
+    
     
 
      
