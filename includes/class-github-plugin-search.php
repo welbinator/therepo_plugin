@@ -34,7 +34,7 @@ class GitHubPluginSearch {
         $offset = ($page - 1) * $per_page;
     
         // Topics to search for
-        $topics = ['wordpress-plugin', 'wordpress'];
+        $topics = ['wordpress-plugin'];
         $all_results = [];
     
         // Fetch results for each topic
@@ -108,49 +108,48 @@ class GitHubPluginSearch {
             wp_send_json_error(['message' => __('You do not have permission to install plugins.', 'the-repo-plugin')]);
         }
     
-        // Get repo URL from AJAX request
         $repo_url = isset($_POST['repo_url']) ? esc_url_raw($_POST['repo_url']) : '';
         if (empty($repo_url)) {
             wp_send_json_error(['message' => __('Invalid repository URL.', 'the-repo-plugin')]);
         }
     
-        // Fetch the latest release
         $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', $repo_url) . '/releases/latest';
         $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
     
         if (is_wp_error($response)) {
+            error_log('[DEBUG] Failed to fetch release information: ' . $response->get_error_message());
             wp_send_json_error(['message' => __('Failed to fetch release information.', 'the-repo-plugin')]);
         }
     
         $release_data = json_decode(wp_remote_retrieve_body($response), true);
         if (empty($release_data['assets'][0]['browser_download_url'])) {
+            error_log('[DEBUG] No downloadable ZIP found for the latest release.');
             wp_send_json_error(['message' => __('No downloadable ZIP found for the latest release.', 'the-repo-plugin')]);
         }
     
         $zip_url = $release_data['assets'][0]['browser_download_url'];
     
-        // Include required WordPress files
         require_once ABSPATH . 'wp-admin/includes/file.php';
         require_once ABSPATH . 'wp-admin/includes/plugin.php';
         require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
     
-        // Initialize the filesystem
         global $wp_filesystem;
         if (!WP_Filesystem()) {
+            error_log('[DEBUG] Failed to initialize filesystem.');
             wp_send_json_error(['message' => __('Failed to initialize filesystem.', 'the-repo-plugin')]);
         }
     
-        // Download the ZIP file
         $temp_file = download_url($zip_url);
     
         if (is_wp_error($temp_file)) {
+            error_log('[DEBUG] Failed to download the plugin ZIP: ' . $temp_file->get_error_message());
             wp_send_json_error(['message' => __('Failed to download the plugin ZIP.', 'the-repo-plugin')]);
         }
     
-        // Extract the ZIP to get the folder name
         $temp_dir = WP_CONTENT_DIR . '/uploads/temp-plugin-extract';
         if (!wp_mkdir_p($temp_dir)) {
             unlink($temp_file);
+            error_log('[DEBUG] Failed to create temporary extraction directory.');
             wp_send_json_error(['message' => __('Failed to create temporary extraction directory.', 'the-repo-plugin')]);
         }
     
@@ -158,49 +157,53 @@ class GitHubPluginSearch {
         if (is_wp_error($unzip_result)) {
             unlink($temp_file);
             $wp_filesystem->delete($temp_dir, true);
+            error_log('[DEBUG] Failed to extract the plugin ZIP: ' . $unzip_result->get_error_message());
             wp_send_json_error(['message' => __('Failed to extract the plugin ZIP.', 'the-repo-plugin')]);
         }
     
-        // Get the folder name
         $extracted_folders = array_diff(scandir($temp_dir), ['.', '..']);
+        error_log('[DEBUG] Extracted folders: ' . print_r($extracted_folders, true));
+    
         if (empty($extracted_folders)) {
             unlink($temp_file);
             $wp_filesystem->delete($temp_dir, true);
+            error_log('[DEBUG] No files found in the plugin ZIP.');
             wp_send_json_error(['message' => __('No files found in the plugin ZIP.', 'the-repo-plugin')]);
         }
     
         $plugin_folder_name = reset($extracted_folders);
+        error_log('[DEBUG] Plugin folder name: ' . $plugin_folder_name);
+    
         $plugin_dir = WP_PLUGIN_DIR . '/' . $plugin_folder_name;
     
-        // Clean up the temporary extraction
-        $wp_filesystem->delete($temp_dir, true);
-    
-        // Check if the plugin is already installed
-        if (is_dir($plugin_dir)) {
+        // Move extracted plugin to plugins directory
+        if (!rename($temp_dir . '/' . $plugin_folder_name, $plugin_dir)) {
             unlink($temp_file);
-            wp_send_json_error(['message' => __('A plugin with this folder name is already installed: ', 'the-repo-plugin') . $plugin_folder_name]);
+            $wp_filesystem->delete($temp_dir, true);
+            error_log('[DEBUG] Failed to move plugin to the plugins directory.');
+            wp_send_json_error(['message' => __('Failed to move plugin to the plugins directory.', 'the-repo-plugin')]);
         }
     
-        // Use Plugin_Upgrader to handle installation
-        $upgrader = new \Plugin_Upgrader(new \WP_Ajax_Upgrader_Skin());
-        $result = $upgrader->install($zip_url);
+        $wp_filesystem->delete($temp_dir, true);
     
-        // Clean up temporary file (only if it exists)
         if (file_exists($temp_file)) {
             unlink($temp_file);
         }
     
-        if (is_wp_error($result)) {
-            wp_send_json_error(['message' => __('Failed to install the plugin.', 'the-repo-plugin')]);
+        if (!is_dir($plugin_dir)) {
+            error_log('[DEBUG] Plugin directory was not created: ' . $plugin_folder_name);
+            wp_send_json_error(['message' => __('Plugin installation failed.', 'the-repo-plugin')]);
         }
     
-        // Check if the plugin was installed successfully
-        if (!$result) {
-            wp_send_json_error(['message' => __('Plugin installation failed. Please try again.', 'the-repo-plugin')]);
-        }
+        // Final debug before responding
+        error_log('[DEBUG] Successfully installed plugin. Folder name: ' . $plugin_folder_name);
     
-        wp_send_json_success(['message' => __('Plugin installed successfully! Please activate it from the Plugins page.', 'the-repo-plugin')]);
+        wp_send_json_success([
+            'message' => __('Plugin installed successfully! Please activate it from the Plugins page.', 'the-repo-plugin'),
+            'folder_name' => $plugin_folder_name, // Include the folder name in the response
+        ]);
     }
+    
     
     public function handle_activate_plugin() {
         if (!current_user_can('activate_plugins')) {
@@ -209,23 +212,36 @@ class GitHubPluginSearch {
     
         $repo_slug = isset($_POST['slug']) ? sanitize_text_field($_POST['slug']) : '';
         if (empty($repo_slug)) {
+            error_log('[DEBUG] Missing plugin slug in activate_plugin request.');
             wp_send_json_error(['message' => __('Missing plugin slug.', 'the-repo-plugin')]);
         }
     
+        error_log('[DEBUG] Attempting to activate plugin with slug: ' . $repo_slug);
+    
+        // Ensure `$installed_plugins` is defined
         $installed_plugins = get_plugins();
+    
+        // Find the plugin file
         $plugin_file = $this->find_plugin_file($installed_plugins, $repo_slug);
     
         if (!$plugin_file) {
+            error_log('[DEBUG] Plugin file not found for slug: ' . $repo_slug);
             wp_send_json_error(['message' => __('Plugin not found.', 'the-repo-plugin')]);
         }
     
+        error_log('[DEBUG] Found plugin file for activation: ' . $plugin_file);
+    
+        // Attempt to activate the plugin
         $result = activate_plugin($plugin_file);
         if (is_wp_error($result)) {
+            error_log('[DEBUG] Activation error: ' . $result->get_error_message());
             wp_send_json_error(['message' => $result->get_error_message()]);
         }
     
+        error_log('[DEBUG] Plugin activated successfully: ' . $plugin_file);
         wp_send_json_success(['message' => __('Plugin activated successfully.', 'the-repo-plugin')]);
     }
+       
     
     public function handle_deactivate_plugin() {
         if (!current_user_can('activate_plugins')) {
@@ -254,28 +270,30 @@ class GitHubPluginSearch {
     }
     
     private function find_plugin_file($installed_plugins, $repo_slug) {
-        $plugin_file = false;
+        error_log('[DEBUG] Searching for plugin file with slug: ' . $repo_slug);
     
         foreach ($installed_plugins as $file => $data) {
-            // Normalize data for comparison.
             $plugin_folder = strtolower(dirname($file));
             $plugin_basename = strtolower(basename($file, '.php'));
             $plugin_title = sanitize_title($data['Name']);
     
-            // Match against folder name, basename, sanitized title, or repo_slug.
+            error_log("[DEBUG] Checking plugin: Folder: $plugin_folder, Basename: $plugin_basename, Title: $plugin_title");
+    
             if (
                 strtolower($repo_slug) === $plugin_folder || 
                 strtolower($repo_slug) === $plugin_basename || 
                 strtolower($repo_slug) === $plugin_title ||
-                strpos($plugin_title, strtolower($repo_slug)) !== false // Partial match
+                strpos($plugin_title, strtolower($repo_slug)) !== false
             ) {
-                $plugin_file = $file;
-                break;
+                error_log('[DEBUG] Match found: ' . $file);
+                return $file;
             }
         }
     
-        return $plugin_file;
+        error_log('[DEBUG] No match found for slug: ' . $repo_slug);
+        return false;
     }
+    
     
 
     public function render_form() {
@@ -355,6 +373,7 @@ function addEventListeners() {
         button.parentNode.replaceChild(newButton, button);
     });
 
+    // Install button
     document.querySelectorAll('.install-btn').forEach(button => {
         button.addEventListener('click', function () {
             const repoUrl = this.dataset.repo;
@@ -364,44 +383,63 @@ function addEventListeners() {
             installButton.textContent = 'Installing...';
 
             fetch(`<?php echo admin_url('admin-ajax.php'); ?>`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: new URLSearchParams({
-                    action: 'install_github_plugin',
-                    repo_url: repoUrl,
-                }),
-            })
-                .then(response => response.json())
-                .then(data => {
-                    console.log('Install response:', data); // Debugging log
-                    if (data.success) {
-                        installButton.textContent = 'Activate';
-                        installButton.classList.remove('install-btn');
-                        installButton.classList.add('activate-btn');
-                        installButton.disabled = false;
+    method: 'POST',
+    headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+        action: 'install_github_plugin',
+        repo_url: repoUrl,
+    }),
+})
+    .then(response => response.json())
+    .then(data => {
+        console.log('Install response:', data); // Debugging log
+        if (data.success) {
+            const folderName = data.data.folder_name; // Correctly access folder_name from data.data
 
-                        addEventListeners();
-                    } else {
-                        alert(data.data.message); // Show alert only on failure
-                        installButton.textContent = 'Install';
-                        installButton.disabled = false;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('An error occurred while installing the plugin.');
-                    installButton.textContent = 'Install';
-                    installButton.disabled = false;
-                });
+            if (!folderName) {
+                console.error('Error: folder_name is undefined in the response.');
+                installButton.disabled = false;
+                installButton.textContent = 'Install';
+                return;
+            }
+
+            // Update button to "Activate" with the correct folder name
+            installButton.textContent = 'Activate';
+            installButton.classList.remove('install-btn');
+            installButton.classList.add('activate-btn');
+            installButton.setAttribute('data-folder', folderName);
+            installButton.disabled = false;
+
+            console.log('Set data-folder to:', folderName);
+
+            addEventListeners(); // Rebind listeners for updated button state
+        } else {
+            alert(data.data.message || 'An error occurred.');
+            installButton.textContent = 'Install';
+            installButton.disabled = false;
+        }
+    })
+    .catch(error => {
+        console.error('Error during installation:', error);
+        alert('An error occurred while installing the plugin.');
+        installButton.textContent = 'Install';
+        installButton.disabled = false;
+    });
+
+
         });
     });
 
+
+    // Activate button
     document.querySelectorAll('.activate-btn').forEach(button => {
         button.addEventListener('click', function () {
             const folderName = this.dataset.folder;
             const activateButton = this;
+
+            console.log('Activate button clicked. Folder name:', folderName);
 
             if (!folderName) {
                 alert('Error: Missing plugin folder name.');
@@ -429,7 +467,7 @@ function addEventListeners() {
                         activateButton.classList.remove('activate-btn');
                         activateButton.classList.add('deactivate-btn');
                     } else {
-                        alert(data.data.message); // Show alert only on failure
+                        alert(data.data.message || 'An error occurred.');
                         activateButton.textContent = 'Activate';
                     }
                     activateButton.disabled = false;
@@ -437,7 +475,7 @@ function addEventListeners() {
                     addEventListeners(); // Rebind listeners for updated state
                 })
                 .catch(error => {
-                    console.error('Error:', error);
+                    console.error('Error during activation:', error);
                     alert('An error occurred while activating the plugin.');
                     activateButton.textContent = 'Activate';
                     activateButton.disabled = false;
@@ -445,10 +483,13 @@ function addEventListeners() {
         });
     });
 
+    // Deactivate button
     document.querySelectorAll('.deactivate-btn').forEach(button => {
         button.addEventListener('click', function () {
             const folderName = this.dataset.folder;
             const deactivateButton = this;
+
+            console.log('Deactivate button clicked. Folder name:', folderName);
 
             if (!folderName) {
                 alert('Missing plugin folder name.');
@@ -476,7 +517,7 @@ function addEventListeners() {
                         deactivateButton.classList.remove('deactivate-btn');
                         deactivateButton.classList.add('activate-btn');
                     } else {
-                        alert(data.data.message); // Show alert only on failure
+                        alert(data.data.message || 'An error occurred.');
                         deactivateButton.textContent = 'Deactivate';
                     }
                     deactivateButton.disabled = false;
@@ -484,7 +525,7 @@ function addEventListeners() {
                     addEventListeners(); // Rebind listeners for updated state
                 })
                 .catch(error => {
-                    console.error('Error:', error);
+                    console.error('Error during deactivation:', error);
                     alert('An error occurred while deactivating the plugin.');
                     deactivateButton.textContent = 'Deactivate';
                     deactivateButton.disabled = false;
@@ -597,7 +638,7 @@ function generatePagination(totalPages, currentPage, query) {
         $results = [];
     
         foreach ($repositories as $repo) {
-            if (isset($repo['topics']) && (in_array('wordpress', $repo['topics']) || in_array('wordpress-plugin', $repo['topics']))) {
+            if (isset($repo['topics']) && in_array('wordpress-plugin', $repo['topics'])) {
                 $results[] = [
                     'full_name'   => $repo['full_name'],
                     'html_url'    => $repo['html_url'],
@@ -609,6 +650,7 @@ function generatePagination(totalPages, currentPage, query) {
     
         return $results;
     }
+    
 
      
  
