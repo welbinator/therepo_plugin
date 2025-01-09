@@ -33,16 +33,13 @@ class GitHubPluginSearch {
         $per_page = 12; // Results per page
         $offset = ($page - 1) * $per_page;
     
-        // Get the date 6 months ago
-        $six_months_ago = date('Y-m-d', strtotime('-6 months'));
-    
         // Topics to search for
         $topics = ['wordpress-plugin'];
         $all_results = [];
     
         // Fetch results for each topic
         foreach ($topics as $topic) {
-            $api_query = urlencode($query) . "+topic:" . $topic . "+pushed:>=" . $six_months_ago;
+            $api_query = urlencode($query) . "+topic:" . $topic;
             $api_url = "{$this->github_base_url}/search/repositories?q=" . $api_query . "&per_page=100";
     
             $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
@@ -65,41 +62,8 @@ class GitHubPluginSearch {
         // Remove duplicate repositories
         $unique_results = array_map('unserialize', array_unique(array_map('serialize', $all_results)));
     
-        // Apply the filter to repositories
-        $filtered_results = $this->filter_repositories($unique_results);
-    
-        // Check installation and activation status for each plugin
-        $installed_plugins = get_plugins(); // Fetch all installed plugins for matching
-        foreach ($filtered_results as &$repo) {
-            $repo_slug = $repo['full_name']; // Example: 'the-events-calendar/event-tickets'
-            $repo_folder = strtolower(explode('/', $repo_slug)[1]); // Extract the folder name.
-        
-            $repo['is_installed'] = false;
-            $repo['is_active'] = false;
-        
-            // Fetch the latest release data for additional checks
-            $repo_url = $repo['html_url'];
-            $latest_release_zip_name = $this->get_latest_release_zip_name($repo_url);
-        
-            foreach ($installed_plugins as $plugin_file => $plugin_data) {
-                $plugin_folder = strtolower(dirname($plugin_file));
-                $plugin_basename = strtolower(basename($plugin_file, '.php'));
-                $plugin_title = sanitize_title($plugin_data['Name']);
-        
-                // Match against folder name, basename, sanitized title, or latest release ZIP name
-                if (
-                    $repo_folder === $plugin_folder || 
-                    $repo_folder === $plugin_basename || 
-                    $repo_folder === $plugin_title || 
-                    ($latest_release_zip_name && $plugin_folder === $latest_release_zip_name)
-                ) {
-                    $repo['is_installed'] = true;
-                    $repo['is_active'] = is_plugin_active($plugin_file);
-                    break;
-                }
-            }
-        }
-        
+        // Filter repositories by release date
+        $filtered_results = $this->filter_repositories_by_release_date($unique_results);
     
         $paginated_results = array_slice($filtered_results, $offset, $per_page);
     
@@ -110,6 +74,7 @@ class GitHubPluginSearch {
     
         wp_send_json($response);
     }
+    
     
     private function get_latest_release_zip_name($repo_url) {
         $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', rtrim($repo_url, '/')) . '/releases/latest';
@@ -393,9 +358,7 @@ class GitHubPluginSearch {
         error_log('[DEBUG] No match found for slug: ' . $repo_slug);
         return false;
     }
-    
-    
-    
+
 
     public function render_form() {
         ?>
@@ -413,226 +376,226 @@ class GitHubPluginSearch {
     e.preventDefault();
     const query = document.getElementById('github-search-query').value.trim();
     searchGitHub(query, 1);
-});
+    });
 
-function searchGitHub(query, page) {
-    const resultsContainer = document.getElementById('github-search-results');
-    const paginationContainer = document.getElementById('github-search-pagination');
+        function searchGitHub(query, page) {
+            const resultsContainer = document.getElementById('github-search-results');
+            const paginationContainer = document.getElementById('github-search-pagination');
 
-    resultsContainer.innerHTML = 'Searching...';
-    paginationContainer.innerHTML = '';
+            resultsContainer.innerHTML = 'Searching...';
+            paginationContainer.innerHTML = '';
 
-    fetch(`<?php echo admin_url('admin-ajax.php'); ?>?action=github_plugin_search&query=${encodeURIComponent(query)}&page=${page}`)
+            fetch(<?php echo admin_url('admin-ajax.php'); ?>?action=github_plugin_search&query=${encodeURIComponent(query)}&page=${page})
+                .then(response => response.json())
+                .then(data => {
+                    if (data.results.length > 0) {
+                        const resultsHtml = data.results.map(repo => {
+                        const pluginFolderName = repo.full_name.split('/')[1]; // Extract folder name
+
+                        let buttonHtml;
+                        if (repo.is_active) {
+                            buttonHtml = <button class="deactivate-btn" data-folder="${pluginFolderName}">Deactivate</button>;
+                        } else if (repo.is_installed) {
+                            buttonHtml = <button class="activate-btn" data-folder="${pluginFolderName}">Activate</button>;
+                        } else {
+                            buttonHtml = <button class="install-btn" data-repo="${repo.html_url}">Install</button>;
+                        }
+
+                        return 
+                            <div class="the-repo_card">
+                                <div class="content">
+                                    <h2 class="title">
+                                        <a href="${repo.html_url}" target="_blank" rel="noopener noreferrer">${repo.full_name}</a>
+                                    </h2>
+                                    <p class="description">${repo.description || 'No description available.'}</p>
+                                    <p class="plugin-website">${repo.homepage ? <a href="${repo.homepage}" target="_blank" rel="noopener noreferrer" class="link">Visit Plugin Website</a> : ''}</p>
+                                    ${buttonHtml}
+                                </div>
+                            </div>
+                        ;
+                    }).join('');
+
+
+                        resultsContainer.innerHTML = resultsHtml;
+
+                        addEventListeners();
+                    } else {
+                        resultsContainer.innerHTML = '<p>No results found.</p>';
+                    }
+                })
+                .catch(error => {
+                    console.error(error);
+                    resultsContainer.innerHTML = '<p>Error fetching results. Please try again later.</p>';
+                });
+        }
+
+
+        function addEventListeners() {
+            // Clear existing listeners to prevent duplication
+            document.querySelectorAll('.install-btn, .activate-btn, .deactivate-btn').forEach(button => {
+                const newButton = button.cloneNode(true);
+                button.parentNode.replaceChild(newButton, button);
+            });
+
+            // Install button
+            document.querySelectorAll('.install-btn').forEach(button => {
+                button.addEventListener('click', function () {
+                    const repoUrl = this.dataset.repo;
+                    const installButton = this;
+
+                    installButton.disabled = true;
+                    installButton.textContent = 'Installing...';
+
+                    fetch(<?php echo admin_url('admin-ajax.php'); ?>, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+                action: 'install_github_plugin',
+                repo_url: repoUrl,
+            }),
+        })
         .then(response => response.json())
         .then(data => {
-            if (data.results.length > 0) {
-                const resultsHtml = data.results.map(repo => {
-                const pluginFolderName = repo.full_name.split('/')[1]; // Extract folder name
+            console.log('Install response:', data); // Debugging log
+            if (data.success) {
+                const folderName = data.data.folder_name; // Correctly access folder_name from data.data
 
-                let buttonHtml;
-                if (repo.is_active) {
-                    buttonHtml = `<button class="deactivate-btn" data-folder="${pluginFolderName}">Deactivate</button>`;
-                } else if (repo.is_installed) {
-                    buttonHtml = `<button class="activate-btn" data-folder="${pluginFolderName}">Activate</button>`;
-                } else {
-                    buttonHtml = `<button class="install-btn" data-repo="${repo.html_url}">Install</button>`;
+                if (!folderName) {
+                    console.error('Error: folder_name is undefined in the response.');
+                    installButton.disabled = false;
+                    installButton.textContent = 'Install';
+                    return;
                 }
 
-                return `
-                    <div class="the-repo_card">
-                        <div class="content">
-                            <h2 class="title">
-                                <a href="${repo.html_url}" target="_blank" rel="noopener noreferrer">${repo.full_name}</a>
-                            </h2>
-                            <p class="description">${repo.description || 'No description available.'}</p>
-                            <p class="plugin-website">${repo.homepage ? `<a href="${repo.homepage}" target="_blank" rel="noopener noreferrer" class="link">Visit Plugin Website</a>` : ''}</p>
-                            ${buttonHtml}
-                        </div>
-                    </div>
-                `;
-            }).join('');
+                // Update button to "Activate" with the correct folder name
+                installButton.textContent = 'Activate';
+                installButton.classList.remove('install-btn');
+                installButton.classList.add('activate-btn');
+                installButton.setAttribute('data-folder', folderName);
+                installButton.disabled = false;
 
+                console.log('Set data-folder to:', folderName);
 
-                resultsContainer.innerHTML = resultsHtml;
-
-                addEventListeners();
+                addEventListeners(); // Rebind listeners for updated button state
             } else {
-                resultsContainer.innerHTML = '<p>No results found.</p>';
+                alert(data.data.message || 'An error occurred.');
+                installButton.textContent = 'Install';
+                installButton.disabled = false;
             }
         })
         .catch(error => {
-            console.error(error);
-            resultsContainer.innerHTML = '<p>Error fetching results. Please try again later.</p>';
-        });
-}
-
-
-function addEventListeners() {
-    // Clear existing listeners to prevent duplication
-    document.querySelectorAll('.install-btn, .activate-btn, .deactivate-btn').forEach(button => {
-        const newButton = button.cloneNode(true);
-        button.parentNode.replaceChild(newButton, button);
-    });
-
-    // Install button
-    document.querySelectorAll('.install-btn').forEach(button => {
-        button.addEventListener('click', function () {
-            const repoUrl = this.dataset.repo;
-            const installButton = this;
-
-            installButton.disabled = true;
-            installButton.textContent = 'Installing...';
-
-            fetch(`<?php echo admin_url('admin-ajax.php'); ?>`, {
-    method: 'POST',
-    headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-        action: 'install_github_plugin',
-        repo_url: repoUrl,
-    }),
-})
-    .then(response => response.json())
-    .then(data => {
-        console.log('Install response:', data); // Debugging log
-        if (data.success) {
-            const folderName = data.data.folder_name; // Correctly access folder_name from data.data
-
-            if (!folderName) {
-                console.error('Error: folder_name is undefined in the response.');
-                installButton.disabled = false;
-                installButton.textContent = 'Install';
-                return;
-            }
-
-            // Update button to "Activate" with the correct folder name
-            installButton.textContent = 'Activate';
-            installButton.classList.remove('install-btn');
-            installButton.classList.add('activate-btn');
-            installButton.setAttribute('data-folder', folderName);
-            installButton.disabled = false;
-
-            console.log('Set data-folder to:', folderName);
-
-            addEventListeners(); // Rebind listeners for updated button state
-        } else {
-            alert(data.data.message || 'An error occurred.');
+            console.error('Error during installation:', error);
+            alert('An error occurred while installing the plugin.');
             installButton.textContent = 'Install';
             installButton.disabled = false;
-        }
-    })
-    .catch(error => {
-        console.error('Error during installation:', error);
-        alert('An error occurred while installing the plugin.');
-        installButton.textContent = 'Install';
-        installButton.disabled = false;
-    });
-
-
         });
-    });
 
 
-    // Activate button
-    document.querySelectorAll('.activate-btn').forEach(button => {
-        button.addEventListener('click', function () {
-            const folderName = this.dataset.folder;
-            const activateButton = this;
+            });
+        });
 
-            console.log('Activate button clicked. Folder name:', folderName);
 
-            if (!folderName) {
-                alert('Error: Missing plugin folder name.');
-                return;
-            }
+        // Activate button
+        document.querySelectorAll('.activate-btn').forEach(button => {
+            button.addEventListener('click', function () {
+                const folderName = this.dataset.folder;
+                const activateButton = this;
 
-            activateButton.disabled = true;
-            activateButton.textContent = 'Activating...';
+                console.log('Activate button clicked. Folder name:', folderName);
 
-            fetch(`<?php echo admin_url('admin-ajax.php'); ?>`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: new URLSearchParams({
-                    action: 'activate_plugin',
-                    slug: folderName,
-                }),
-            })
-                .then(response => response.json())
-                .then(data => {
-                    console.log('Activate response:', data); // Debugging log
-                    if (data.success) {
-                        activateButton.textContent = 'Deactivate';
-                        activateButton.classList.remove('activate-btn');
-                        activateButton.classList.add('deactivate-btn');
-                    } else {
-                        alert(data.data.message || 'An error occurred.');
+                if (!folderName) {
+                    alert('Error: Missing plugin folder name.');
+                    return;
+                }
+
+                activateButton.disabled = true;
+                activateButton.textContent = 'Activating...';
+
+                fetch(<?php echo admin_url('admin-ajax.php'); ?>, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        action: 'activate_plugin',
+                        slug: folderName,
+                    }),
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log('Activate response:', data); // Debugging log
+                        if (data.success) {
+                            activateButton.textContent = 'Deactivate';
+                            activateButton.classList.remove('activate-btn');
+                            activateButton.classList.add('deactivate-btn');
+                        } else {
+                            alert(data.data.message || 'An error occurred.');
+                            activateButton.textContent = 'Activate';
+                        }
+                        activateButton.disabled = false;
+
+                        addEventListeners(); // Rebind listeners for updated state
+                    })
+                    .catch(error => {
+                        console.error('Error during activation:', error);
+                        alert('An error occurred while activating the plugin.');
                         activateButton.textContent = 'Activate';
-                    }
-                    activateButton.disabled = false;
-
-                    addEventListeners(); // Rebind listeners for updated state
-                })
-                .catch(error => {
-                    console.error('Error during activation:', error);
-                    alert('An error occurred while activating the plugin.');
-                    activateButton.textContent = 'Activate';
-                    activateButton.disabled = false;
-                });
+                        activateButton.disabled = false;
+                    });
+            });
         });
-    });
 
-    // Deactivate button
-    document.querySelectorAll('.deactivate-btn').forEach(button => {
-        button.addEventListener('click', function () {
-            const folderName = this.dataset.folder;
-            const deactivateButton = this;
+        // Deactivate button
+        document.querySelectorAll('.deactivate-btn').forEach(button => {
+            button.addEventListener('click', function () {
+                const folderName = this.dataset.folder;
+                const deactivateButton = this;
 
-            console.log('Deactivate button clicked. Folder name:', folderName);
+                console.log('Deactivate button clicked. Folder name:', folderName);
 
-            if (!folderName) {
-                alert('Missing plugin folder name.');
-                return;
-            }
+                if (!folderName) {
+                    alert('Missing plugin folder name.');
+                    return;
+                }
 
-            deactivateButton.disabled = true;
-            deactivateButton.textContent = 'Deactivating...';
+                deactivateButton.disabled = true;
+                deactivateButton.textContent = 'Deactivating...';
 
-            fetch(`<?php echo admin_url('admin-ajax.php'); ?>`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: new URLSearchParams({
-                    action: 'deactivate_plugin',
-                    slug: folderName,
-                }),
-            })
-                .then(response => response.json())
-                .then(data => {
-                    console.log('Deactivate response:', data); // Debugging log
-                    if (data.success) {
-                        deactivateButton.textContent = 'Activate';
-                        deactivateButton.classList.remove('deactivate-btn');
-                        deactivateButton.classList.add('activate-btn');
-                    } else {
-                        alert(data.data.message || 'An error occurred.');
+                fetch(<?php echo admin_url('admin-ajax.php'); ?>, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        action: 'deactivate_plugin',
+                        slug: folderName,
+                    }),
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log('Deactivate response:', data); // Debugging log
+                        if (data.success) {
+                            deactivateButton.textContent = 'Activate';
+                            deactivateButton.classList.remove('deactivate-btn');
+                            deactivateButton.classList.add('activate-btn');
+                        } else {
+                            alert(data.data.message || 'An error occurred.');
+                            deactivateButton.textContent = 'Deactivate';
+                        }
+                        deactivateButton.disabled = false;
+
+                        addEventListeners(); // Rebind listeners for updated state
+                    })
+                    .catch(error => {
+                        console.error('Error during deactivation:', error);
+                        alert('An error occurred while deactivating the plugin.');
                         deactivateButton.textContent = 'Deactivate';
-                    }
-                    deactivateButton.disabled = false;
-
-                    addEventListeners(); // Rebind listeners for updated state
-                })
-                .catch(error => {
-                    console.error('Error during deactivation:', error);
-                    alert('An error occurred while deactivating the plugin.');
-                    deactivateButton.textContent = 'Deactivate';
-                    deactivateButton.disabled = false;
-                });
+                        deactivateButton.disabled = false;
+                    });
+            });
         });
-    });
 }
 
 
@@ -641,15 +604,15 @@ function generatePagination(totalPages, currentPage, query) {
     let html = '';
 
     if (currentPage > 1) {
-        html += `<a href="#" class="github-page-link" data-page="${currentPage - 1}">Previous</a>`;
+        html += <a href="#" class="github-page-link" data-page="${currentPage - 1}">Previous</a>;
     }
 
     for (let i = 1; i <= totalPages; i++) {
-        html += `<a href="#" class="github-page-link ${i === currentPage ? 'active' : ''}" data-page="${i}">${i}</a>`;
+        html += <a href="#" class="github-page-link ${i === currentPage ? 'active' : ''}" data-page="${i}">${i}</a>;
     }
 
     if (currentPage < totalPages) {
-        html += `<a href="#" class="github-page-link" data-page="${currentPage + 1}">Next</a>`;
+        html += <a href="#" class="github-page-link" data-page="${currentPage + 1}">Next</a>;
     }
 
     return html;
@@ -734,7 +697,52 @@ function generatePagination(totalPages, currentPage, query) {
         return ob_get_clean();
     }
 
-
+    private function filter_repositories_by_release_date($repositories) {
+        $results = [];
+        $six_months_ago = strtotime('-6 months');
+    
+        foreach ($repositories as $repo) {
+            if (isset($repo['topics']) && in_array('wordpress-plugin', $repo['topics'])) {
+                $repo_url = $repo['html_url'];
+    
+                // Fetch latest release
+                $latest_release = $this->get_latest_release_data($repo_url);
+                if ($latest_release && isset($latest_release['created_at'])) {
+                    $release_date = strtotime($latest_release['created_at']);
+                    if ($release_date >= $six_months_ago) {
+                        $results[] = [
+                            'full_name'   => $repo['full_name'],
+                            'html_url'    => $repo['html_url'],
+                            'description' => $repo['description'] ?: 'No description available.',
+                            'homepage'    => !empty($repo['homepage']) ? esc_url($repo['homepage']) : null,
+                        ];
+                    }
+                }
+            }
+        }
+    
+        return $results;
+    }
+    
+    private function get_latest_release_data($repo_url) {
+        $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', rtrim($repo_url, '/')) . '/releases/latest';
+        $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
+    
+        if (is_wp_error($response)) {
+            error_log('GitHub API error for releases: ' . $response->get_error_message());
+            return null;
+        }
+    
+        $release_data = json_decode(wp_remote_retrieve_body($response), true);
+        if (!empty($release_data['created_at'])) {
+            error_log('[DEBUG] Latest release date for ' . $repo_url . ': ' . $release_data['created_at']);
+        } else {
+            error_log('[DEBUG] No releases found for ' . $repo_url);
+        }
+    
+        return $release_data;
+    }
+    
     public function filter_repositories($repositories) {
         $results = [];
         $cached_releases = [];
