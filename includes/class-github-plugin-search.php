@@ -203,113 +203,78 @@ class GitHubPluginSearch {
     }
     
     public function handle_activate_plugin() {
-        // Check user permissions.
         if (!current_user_can('activate_plugins')) {
             wp_send_json_error(['message' => __('You do not have permission to activate plugins.', 'the-repo-plugin')]);
         }
     
-        // Get the slug from the request.
         $repo_slug = isset($_POST['slug']) ? sanitize_text_field($_POST['slug']) : '';
         if (empty($repo_slug)) {
             wp_send_json_error(['message' => __('Missing plugin slug.', 'the-repo-plugin')]);
         }
     
-        // Fetch all installed plugins.
         $installed_plugins = get_plugins();
-        $plugin_file = false;
+        $plugin_file = $this->find_plugin_file($installed_plugins, $repo_slug);
     
-        foreach ($installed_plugins as $file => $data) {
-            // Normalize data for comparison.
-            $plugin_folder = strtolower(dirname($file)); // Folder name.
-            $plugin_basename = strtolower(basename($file, '.php')); // File name without extension.
-            $plugin_title = sanitize_title($data['Name']); // Sanitized plugin name.
-    
-            // Log each comparison for debugging.
-            error_log("Checking installed plugin: Folder: $plugin_folder | File: $plugin_basename | Title: $plugin_title");
-    
-            // Match against folder name, basename, or sanitized title.
-            if (
-                strtolower($repo_slug) === $plugin_folder || 
-                strtolower($repo_slug) === $plugin_basename || 
-                strtolower($repo_slug) === $plugin_title
-            ) {
-                $plugin_file = $file;
-                error_log("Match found for slug: $repo_slug -> File: $plugin_file");
-                break;
-            }
-        }
-    
-        // If the plugin file is not found, return an error.
         if (!$plugin_file) {
-            error_log("Plugin file not found for slug: $repo_slug");
-            wp_send_json_error(['message' => __('Plugin file not found.', 'the-repo-plugin')]);
+            wp_send_json_error(['message' => __('Plugin not found.', 'the-repo-plugin')]);
         }
     
-        // Activate the plugin.
-        activate_plugin($plugin_file);
-    
-        if (is_plugin_active($plugin_file)) {
-            error_log("Plugin activated successfully: $plugin_file");
-            wp_send_json_success(['message' => __('Plugin activated successfully.', 'the-repo-plugin')]);
-        } else {
-            error_log("Failed to activate plugin: $plugin_file");
-            wp_send_json_error(['message' => __('Failed to activate the plugin.', 'the-repo-plugin')]);
+        $result = activate_plugin($plugin_file);
+        if (is_wp_error($result)) {
+            wp_send_json_error(['message' => $result->get_error_message()]);
         }
+    
+        wp_send_json_success(['message' => __('Plugin activated successfully.', 'the-repo-plugin')]);
     }
     
     public function handle_deactivate_plugin() {
-        // Check user permissions.
         if (!current_user_can('activate_plugins')) {
             wp_send_json_error(['message' => __('You do not have permission to deactivate plugins.', 'the-repo-plugin')]);
         }
     
-        // Get the slug from the request.
         $repo_slug = isset($_POST['slug']) ? sanitize_text_field($_POST['slug']) : '';
         if (empty($repo_slug)) {
             wp_send_json_error(['message' => __('Missing plugin slug.', 'the-repo-plugin')]);
         }
     
-        // Fetch all installed plugins.
         $installed_plugins = get_plugins();
+        $plugin_file = $this->find_plugin_file($installed_plugins, $repo_slug);
+    
+        if (!$plugin_file) {
+            wp_send_json_error(['message' => __('Plugin not found.', 'the-repo-plugin')]);
+        }
+    
+        deactivate_plugins($plugin_file);
+    
+        if (!is_plugin_active($plugin_file)) {
+            wp_send_json_success(['message' => __('Plugin deactivated successfully.', 'the-repo-plugin')]);
+        } else {
+            wp_send_json_error(['message' => __('Failed to deactivate the plugin.', 'the-repo-plugin')]);
+        }
+    }
+    
+    private function find_plugin_file($installed_plugins, $repo_slug) {
         $plugin_file = false;
     
         foreach ($installed_plugins as $file => $data) {
             // Normalize data for comparison.
-            $plugin_folder = strtolower(dirname($file)); // Folder name.
-            $plugin_basename = strtolower(basename($file, '.php')); // File name without extension.
-            $plugin_title = sanitize_title($data['Name']); // Sanitized plugin name.
+            $plugin_folder = strtolower(dirname($file));
+            $plugin_basename = strtolower(basename($file, '.php'));
+            $plugin_title = sanitize_title($data['Name']);
     
-            // Log each comparison for debugging.
-            error_log("Checking installed plugin for deactivation: Folder: $plugin_folder | File: $plugin_basename | Title: $plugin_title");
-    
-            // Match against folder name, basename, or sanitized title.
+            // Match against folder name, basename, sanitized title, or repo_slug.
             if (
                 strtolower($repo_slug) === $plugin_folder || 
                 strtolower($repo_slug) === $plugin_basename || 
-                strtolower($repo_slug) === $plugin_title
+                strtolower($repo_slug) === $plugin_title ||
+                strpos($plugin_title, strtolower($repo_slug)) !== false // Partial match
             ) {
                 $plugin_file = $file;
-                error_log("Match found for slug (deactivation): $repo_slug -> File: $plugin_file");
                 break;
             }
         }
     
-        // If the plugin file is not found, return an error.
-        if (!$plugin_file) {
-            error_log("Plugin file not found for deactivation slug: $repo_slug");
-            wp_send_json_error(['message' => __('Plugin not found.', 'the-repo-plugin')]);
-        }
-    
-        // Deactivate the plugin.
-        deactivate_plugins($plugin_file);
-    
-        if (!is_plugin_active($plugin_file)) {
-            error_log("Plugin deactivated successfully: $plugin_file");
-            wp_send_json_success(['message' => __('Plugin deactivated successfully.', 'the-repo-plugin')]);
-        } else {
-            error_log("Failed to deactivate plugin: $plugin_file");
-            wp_send_json_error(['message' => __('Failed to deactivate the plugin.', 'the-repo-plugin')]);
-        }
+        return $plugin_file;
     }
     
 
@@ -384,6 +349,12 @@ function searchGitHub(query, page) {
 
 
 function addEventListeners() {
+    // Clear existing listeners to prevent duplication
+    document.querySelectorAll('.install-btn, .activate-btn, .deactivate-btn').forEach(button => {
+        const newButton = button.cloneNode(true);
+        button.parentNode.replaceChild(newButton, button);
+    });
+
     document.querySelectorAll('.install-btn').forEach(button => {
         button.addEventListener('click', function () {
             const repoUrl = this.dataset.repo;
@@ -404,8 +375,8 @@ function addEventListeners() {
             })
                 .then(response => response.json())
                 .then(data => {
+                    console.log('Install response:', data); // Debugging log
                     if (data.success) {
-                        alert(data.data.message);
                         installButton.textContent = 'Activate';
                         installButton.classList.remove('install-btn');
                         installButton.classList.add('activate-btn');
@@ -413,7 +384,7 @@ function addEventListeners() {
 
                         addEventListeners();
                     } else {
-                        alert(data.data.message);
+                        alert(data.data.message); // Show alert only on failure
                         installButton.textContent = 'Install';
                         installButton.disabled = false;
                     }
@@ -428,109 +399,101 @@ function addEventListeners() {
     });
 
     document.querySelectorAll('.activate-btn').forEach(button => {
-    button.addEventListener('click', function () {
-        const folderName = this.dataset.folder;
-        const activateButton = this;
+        button.addEventListener('click', function () {
+            const folderName = this.dataset.folder;
+            const activateButton = this;
 
-        if (!folderName) {
-            alert('Error: Missing plugin folder name.');
-            return;
-        }
+            if (!folderName) {
+                alert('Error: Missing plugin folder name.');
+                return;
+            }
 
-        // Prevent multiple clicks
-        if (activateButton.disabled) return;
+            activateButton.disabled = true;
+            activateButton.textContent = 'Activating...';
 
-        activateButton.disabled = true;
-        activateButton.textContent = 'Activating...';
-
-        fetch(`<?php echo admin_url('admin-ajax.php'); ?>`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: new URLSearchParams({
-                action: 'activate_plugin',
-                slug: folderName,
-            }),
-        })
-            .then(response => response.json())
-            .then(data => {
-                console.log(`Response for ${folderName}:`, data);
-
-                if (data.success) {
-                    alert(data.data.message);
-                    activateButton.textContent = 'Deactivate';
-                    activateButton.classList.remove('activate-btn');
-                    activateButton.classList.add('deactivate-btn');
-                } else {
-                    alert(data.data.message);
-                    activateButton.textContent = 'Activate';
-                }
-                activateButton.disabled = false;
-
-                addEventListeners(); // Rebind listeners for new state
+            fetch(`<?php echo admin_url('admin-ajax.php'); ?>`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    action: 'activate_plugin',
+                    slug: folderName,
+                }),
             })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('An error occurred while activating the plugin.');
-                activateButton.textContent = 'Activate';
-                activateButton.disabled = false;
-            });
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Activate response:', data); // Debugging log
+                    if (data.success) {
+                        activateButton.textContent = 'Deactivate';
+                        activateButton.classList.remove('activate-btn');
+                        activateButton.classList.add('deactivate-btn');
+                    } else {
+                        alert(data.data.message); // Show alert only on failure
+                        activateButton.textContent = 'Activate';
+                    }
+                    activateButton.disabled = false;
+
+                    addEventListeners(); // Rebind listeners for updated state
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while activating the plugin.');
+                    activateButton.textContent = 'Activate';
+                    activateButton.disabled = false;
+                });
+        });
     });
-});
 
+    document.querySelectorAll('.deactivate-btn').forEach(button => {
+        button.addEventListener('click', function () {
+            const folderName = this.dataset.folder;
+            const deactivateButton = this;
 
-document.querySelectorAll('.deactivate-btn').forEach(button => {
-    button.addEventListener('click', function () {
-        const folderName = this.dataset.folder; // Use data-folder instead of data-slug
-        const deactivateButton = this;
+            if (!folderName) {
+                alert('Missing plugin folder name.');
+                return;
+            }
 
-        if (!folderName) {
-            alert('Missing plugin folder name.');
-            return;
-        }
+            deactivateButton.disabled = true;
+            deactivateButton.textContent = 'Deactivating...';
 
-        deactivateButton.disabled = true;
-        deactivateButton.textContent = 'Deactivating...';
-
-        fetch(`<?php echo admin_url('admin-ajax.php'); ?>`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: new URLSearchParams({
-                action: 'deactivate_plugin',
-                slug: folderName, // Send the correct folder name
-            }),
-        })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    alert(data.data.message);
-                    deactivateButton.textContent = 'Activate';
-                    deactivateButton.classList.remove('deactivate-btn');
-                    deactivateButton.classList.add('activate-btn');
+            fetch(`<?php echo admin_url('admin-ajax.php'); ?>`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    action: 'deactivate_plugin',
+                    slug: folderName,
+                }),
+            })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Deactivate response:', data); // Debugging log
+                    if (data.success) {
+                        deactivateButton.textContent = 'Activate';
+                        deactivateButton.classList.remove('deactivate-btn');
+                        deactivateButton.classList.add('activate-btn');
+                    } else {
+                        alert(data.data.message); // Show alert only on failure
+                        deactivateButton.textContent = 'Deactivate';
+                    }
                     deactivateButton.disabled = false;
 
-                    // Re-add event listeners for activation
-                    addEventListeners();
-                } else {
-                    alert(data.data.message);
+                    addEventListeners(); // Rebind listeners for updated state
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while deactivating the plugin.');
                     deactivateButton.textContent = 'Deactivate';
                     deactivateButton.disabled = false;
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('An error occurred while deactivating the plugin.');
-                deactivateButton.textContent = 'Deactivate';
-                deactivateButton.disabled = false;
-            });
+                });
+        });
     });
-});
-
-
 }
+
+
 
 function generatePagination(totalPages, currentPage, query) {
     let html = '';
