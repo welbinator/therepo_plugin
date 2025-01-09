@@ -25,34 +25,3 @@ add_action('init', function() {
     delete_transient('github_search_' . md5('youtube'));
 });
 
-function has_github_releases($repo_url) {
-    // Convert GitHub repo URL to API releases endpoint
-    $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', rtrim($repo_url, '/')) . '/releases';
-
-    // Set up headers (optional: use a personal access token for higher rate limits)
-    $headers = [
-        'User-Agent' => 'GitHub Release Checker',
-    ];
-
-    // Perform the request
-    $response = wp_remote_get($api_url, ['headers' => $headers]);
-
-    // Check for errors in the response
-    if (is_wp_error($response)) {
-        error_log('GitHub API error: ' . $response->get_error_message());
-        return false;
-    }
-
-    // Parse the response body
-    $releases = json_decode(wp_remote_retrieve_body($response), true);
-
-    // Check if the response contains valid releases
-    return !empty($releases) && is_array($releases);
-}
-
-$repo_url = 'https://github.com/lbell/pretty-google-calendar';
-if (has_github_releases($repo_url)) {
-    error_log("The repository has releases.");
-} else {
-    error_log("No releases found for this repository.");
-}
