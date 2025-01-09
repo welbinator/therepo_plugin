@@ -172,8 +172,27 @@ class GitHubPluginSearch {
             wp_send_json_error(['message' => __('No files found in the plugin ZIP.', 'the-repo-plugin')]);
         }
     
-        $plugin_folder_name = reset($extracted_folders);
-        error_log('[DEBUG] Plugin folder name: ' . $plugin_folder_name);
+        // Check if the ZIP lacks a root folder
+        if (count($extracted_folders) === 1 && is_dir($temp_dir . '/' . reset($extracted_folders))) {
+            // Proper root folder exists
+            $plugin_folder_name = reset($extracted_folders);
+        } else {
+            // No root folder - Create one
+            $plugin_folder_name = sanitize_file_name(basename($temp_file, '.zip'));
+            $new_plugin_dir = $temp_dir . '/' . $plugin_folder_name;
+    
+            if (!mkdir($new_plugin_dir, 0755)) {
+                unlink($temp_file);
+                $wp_filesystem->delete($temp_dir, true);
+                error_log('[DEBUG] Failed to create root folder for plugin.');
+                wp_send_json_error(['message' => __('Failed to create root folder for plugin.', 'the-repo-plugin')]);
+            }
+    
+            // Move all extracted files into the new root folder
+            foreach ($extracted_folders as $file) {
+                rename($temp_dir . '/' . $file, $new_plugin_dir . '/' . $file);
+            }
+        }
     
         $plugin_dir = WP_PLUGIN_DIR . '/' . $plugin_folder_name;
     
@@ -204,6 +223,7 @@ class GitHubPluginSearch {
             'folder_name' => $plugin_folder_name, // Include the folder name in the response
         ]);
     }
+    
     
     
     public function handle_activate_plugin() {
@@ -637,24 +657,70 @@ function generatePagination(totalPages, currentPage, query) {
 
     public function filter_repositories($repositories) {
         $results = [];
+        $repositories_with_urls = array_column($repositories, 'html_url', 'full_name');
+    
+        // Check releases in parallel
+        $releases_data = $this->check_releases_in_parallel($repositories_with_urls);
+    
         foreach ($repositories as $repo) {
             if (isset($repo['topics']) && in_array('wordpress-plugin', $repo['topics'])) {
-                // Check if the repository has releases
                 $repo_url = $repo['html_url'];
-                $has_releases = $this->has_releases($repo_url);
     
-                if ($has_releases) {
+                if (isset($releases_data[$repo_url]) && $releases_data[$repo_url]) {
                     $results[] = [
                         'full_name'   => $repo['full_name'],
                         'html_url'    => $repo['html_url'],
                         'description' => $repo['description'] ?: 'No description available.',
-                        'homepage'    => !empty($repo['homepage']) ? esc_url($repo['homepage']) : null, // Add homepage
+                        'homepage'    => !empty($repo['homepage']) ? esc_url($repo['homepage']) : null,
                     ];
                 }
             }
         }
         return $results;
     }
+    
+    private function check_releases_in_parallel($repositories_with_urls) {
+        $responses = [];
+        $requests = [];
+        $headers = $this->github_headers;
+    
+        foreach ($repositories_with_urls as $full_name => $repo_url) {
+            $cache_key = 'repo_releases_' . md5($repo_url);
+            $cached = get_transient($cache_key);
+    
+            if ($cached !== false) {
+                $responses[$repo_url] = $cached;
+            } else {
+                $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', rtrim($repo_url, '/')) . '/releases';
+                $requests[$repo_url] = [
+                    'url' => $api_url,
+                    'type' => 'GET',
+                    'headers' => $headers,
+                ];
+            }
+        }
+    
+        if (!empty($requests)) {
+            // Use the updated Requests namespace and batch request processing
+            $responses_from_requests = \WpOrg\Requests\Requests::request_multiple($requests, ['timeout' => 10]);
+    
+            foreach ($responses_from_requests as $repo_url => $result) {
+                if (!is_wp_error($result) && $result->status_code === 200) {
+                    $releases = json_decode($result->body, true);
+                    $has_releases = !empty($releases) && is_array($releases);
+                    $responses[$repo_url] = $has_releases;
+    
+                    // Cache the result
+                    set_transient('repo_releases_' . md5($repo_url), $has_releases, DAY_IN_SECONDS);
+                } else {
+                    $responses[$repo_url] = false;
+                }
+            }
+        }
+    
+        return $responses;
+    }
+    
     
     
     private function has_releases($repo_url) {
