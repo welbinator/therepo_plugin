@@ -17,11 +17,8 @@ if (!defined('ABSPATH')) {
 // Define the plugin version as a constant.
 define('THE_REPO_PLUGIN_VERSION', '1.0.0');
 
-// Include necessary files.
-require_once plugin_dir_path(__FILE__) . 'includes/class-github-plugin-search.php';
-require_once plugin_dir_path(__FILE__) . 'admin/admin-settings.php';
+// Load the main plugin class
+require_once __DIR__ . '/includes/GitHubPluginSearch.php';
 
-add_action('init', function() {
-    delete_transient('github_search_' . md5('youtube'));
-});
-
+// Initialize the plugin
+new \TheRepoPlugin\GitHubPluginSearch\GitHubPluginSearch();
