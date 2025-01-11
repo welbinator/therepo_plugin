@@ -1,8 +1,19 @@
-document.getElementById('github-search-form').addEventListener('submit', function (e) {
-    e.preventDefault();
-    const query = document.getElementById('github-search-query').value.trim();
-    searchGitHub(query, 1);
-});
+(function () {
+    document.addEventListener('DOMContentLoaded', function () {
+        const form = document.getElementById('the-repo-plugin-search-form');
+        if (form) {
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                const query = document.getElementById('github-search-query').value.trim();
+                searchGitHub(query, 1);
+            });
+        } else {
+            console.error('Form not found.');
+        }
+    });
+})();
+
+
 
 function searchGitHub(query, page) {
     const resultsContainer = document.getElementById('github-search-results');
@@ -130,70 +141,70 @@ function addEventListeners() {
 
     // Similar cleanup logic for Activate and Deactivate buttons
     document.querySelectorAll('.activate-btn').forEach(button => {
-        button.addEventListener('click', function () {
-            const folderName = this.dataset.folder;
-            const activateButton = this;
-    
-            console.log('Activate button clicked for folder:', folderName);
-    
-            if (!folderName) {
-                alert('Error: Missing plugin folder name.');
-                return;
-            }
-    
-            activateButton.disabled = true;
-            activateButton.textContent = 'Activating...';
-    
-            // Prepare the request payload
-            const requestBody = new URLSearchParams({
-                action: 'activate_plugin', // PHP handler for activation
-                slug: folderName,         // Plugin folder name
-            });
-    
-            console.log('Activate request payload:', Object.fromEntries(requestBody));
-    
-            // Send the AJAX request
-            fetch(`${github_plugin_search.ajax_url}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: requestBody,
-            })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! Status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    console.log('Activate response:', data);
-    
-                    if (data.success) {
-                        activateButton.textContent = 'Deactivate';
-                        activateButton.classList.remove('activate-btn');
-                        activateButton.classList.add('deactivate-btn');
-                    } else {
-                        const errorMessage = data.message || 'An error occurred.';
-                        console.error('Activation failed:', errorMessage);
-                        alert(errorMessage);
-                        activateButton.textContent = 'Activate';
-                    }
-    
-                    activateButton.disabled = false;
-    
-                    // Rebind event listeners for updated button state
-                    addEventListeners();
-                })
-                .catch(error => {
-                    console.error('Error during activation:', error);
-                    alert('An error occurred while activating the plugin. Please try again.');
-                    activateButton.textContent = 'Activate';
-                    activateButton.disabled = false;
-                });
+    button.addEventListener('click', function () {
+        const folderName = this.dataset.folder;
+        const activateButton = this;
+
+        console.log('Activate button clicked for folder:', folderName);
+
+        if (!folderName) {
+            alert('Error: Missing plugin folder name.');
+            return;
+        }
+
+        activateButton.disabled = true;
+        activateButton.textContent = 'Activating...';
+
+        // Prepare the request payload
+        const requestBody = new URLSearchParams({
+            action: 'activate_plugin', // PHP handler for activation
+            slug: folderName,         // Plugin folder name
         });
+
+        console.log('Activate request payload:', Object.fromEntries(requestBody));
+
+        // Send the AJAX request
+        fetch(`${github_plugin_search.ajax_url}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: requestBody,
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Activate response:', data);
+
+                if (data.success) {
+                    activateButton.textContent = 'Deactivate';
+                    activateButton.classList.remove('activate-btn');
+                    activateButton.classList.add('deactivate-btn');
+                } else {
+                    const errorMessage = data.message || 'An error occurred.';
+                    console.error('Activation failed:', errorMessage);
+                    alert(errorMessage);
+                    activateButton.textContent = 'Activate';
+                }
+
+                activateButton.disabled = false;
+
+                // Rebind event listeners for updated button state
+                addEventListeners();
+            })
+            .catch(error => {
+                console.error('Error during activation:', error);
+                alert('An error occurred while activating the plugin. Please try again.');
+                activateButton.textContent = 'Activate';
+                activateButton.disabled = false;
+            });
     });
-    
+});
+
     
 
     document.querySelectorAll('.deactivate-btn').forEach(button => {

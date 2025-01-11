@@ -27,3 +27,4 @@ function filter_repositories_by_release_date($repositories, $github_headers) {
 
     return $results;
 }
+

@@ -5,7 +5,6 @@ namespace TheRepoPlugin\RenderForm;
 class GitHubSearchUI {
 
     function render_form() {
-        
         ?>
         <div id="github-plugin-search">
             <form id="github-search-form">
@@ -16,6 +15,6 @@ class GitHubSearchUI {
             <div id="github-search-pagination"></div>
         </div>
         <?php
-        return ob_get_clean();
     }
+    
 }
