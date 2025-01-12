@@ -18,66 +18,69 @@ class AjaxHandlers {
             error_log('[DEBUG] Query parameter is missing or empty.');
             wp_send_json_error(['error' => 'Query parameter is missing.']);
         }
-
+    
         $query = sanitize_text_field($_GET['query']);
-        $page = isset($_GET['page']) ? absint($_GET['page']) : 1;
-
-        error_log('[DEBUG] Received query: ' . $query . ', Page: ' . $page);
-
-        // Process the API request
         $topics = ['wordpress-plugin'];
-        $all_results = [];
+    
+        // Start output buffering
+        @ini_set('zlib.output_compression', 0);
+        @ini_set('implicit_flush', 1);
+        ob_implicit_flush(true);
+        ob_end_flush();
+    
+        header('Content-Type: application/json');
+        header('X-Accel-Buffering: no'); // Disable buffering on Nginx
+        header('Cache-Control: no-cache');
+    
+        // Begin the JSON response
+        echo '{"success": true, "data": {"results": [';
+        flush();
+    
+        $first = true;
+    
         foreach ($topics as $topic) {
             $api_query = urlencode($query) . "+topic:" . $topic;
             $api_url = "{$this->github_base_url}/search/repositories?q=" . $api_query . "&per_page=100";
-
+    
             $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
             if (is_wp_error($response)) {
                 error_log('[DEBUG] GitHub API Error: ' . $response->get_error_message());
                 continue;
             }
-
+    
             $response_body = wp_remote_retrieve_body($response);
             $data = json_decode($response_body, true);
-
+    
             if (!isset($data['items']) || !is_array($data['items'])) {
                 error_log('[DEBUG] Invalid or missing "items" in GitHub API response: ' . $response_body);
                 continue;
             }
-
-            $all_results = array_merge($all_results, $data['items']);
-        }
-
-        $unique_results = array_map('unserialize', array_unique(array_map('serialize', $all_results)));
-        $filtered_results = filter_repositories_by_release_date($unique_results, $this->github_headers);
-
-        // Check installed and activation status
-        $installed_plugins = get_plugins(); // Get all installed plugins
-        $active_plugins = get_option('active_plugins', []); // Get active plugins
-
-        foreach ($filtered_results as &$repo) {
-            $plugin_slug = strtolower(basename($repo['html_url'])); // Extract repo slug (folder name)
-            $plugin_folder = $plugin_slug . '/' . $plugin_slug . '.php'; // Typical plugin file path format
-
-            if (isset($installed_plugins[$plugin_folder])) {
-                $repo['is_installed'] = true;
-                $repo['is_active'] = in_array($plugin_folder, $active_plugins);
-            } else {
-                $repo['is_installed'] = false;
-                $repo['is_active'] = false;
+    
+            foreach ($data['items'] as $repo) {
+                $unique_repo = filter_repositories_by_release_date([$repo], $this->github_headers);
+    
+                if (!empty($unique_repo)) {
+                    $repo = reset($unique_repo); // Take the first valid result
+    
+                    // Add a comma before every result except the first
+                    if (!$first) {
+                        echo ',';
+                    } else {
+                        $first = false;
+                    }
+    
+                    echo json_encode($repo);
+                    flush(); // Send the current repository to the client
+                }
             }
         }
-
-        error_log('[DEBUG] Filtered results count: ' . count($filtered_results));
-
-        $paginated_results = array_slice($filtered_results, ($page - 1) * 12, 12);
-
-        wp_send_json([
-            'success' => true,
-            'data' => [
-                'results' => $paginated_results,
-                'total_pages' => ceil(count($filtered_results) / 12),
-            ],
-        ]);
+    
+        // End the JSON response
+        echo ']}}';
+        flush();
+        die();
     }
+    
+    
+    
 }

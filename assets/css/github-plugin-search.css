@@ -30,6 +30,7 @@
     overflow: hidden;
     padding: .75rem;
     border: 1px solid #cdcdcd;
+    max-width: 300px;
 }
 .content {
     padding: .5rem;

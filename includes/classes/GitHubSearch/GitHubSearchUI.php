@@ -11,6 +11,7 @@ class GitHubSearchUI {
                 <input type="text" id="github-search-query" placeholder="Search for WordPress plugins..." />
                 <button type="submit">Search</button>
             </form>
+            <div id="searching-message" style="display:none;">Searching...</div>
             <div id="github-search-results" class="grid"></div>
             <div id="github-search-pagination"></div>
         </div>

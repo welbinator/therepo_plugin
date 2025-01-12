@@ -6,28 +6,110 @@ document.getElementById('github-search-form').addEventListener('submit', functio
 
 function searchGitHub(query, page) {
     const resultsContainer = document.getElementById('github-search-results');
+    const searchingMessage = document.getElementById('searching-message');
     const paginationContainer = document.getElementById('github-search-pagination');
 
-    resultsContainer.innerHTML = 'Searching...';
+    // Show "Searching..." and clear previous results
+    searchingMessage.style.display = 'block';
+    resultsContainer.innerHTML = '';
     paginationContainer.innerHTML = '';
 
-    console.log('AJAX request payload:', { query, page });
     fetch(`${github_plugin_search.ajax_url}?action=github_plugin_search&query=${encodeURIComponent(query)}&page=${page}`)
-        .then(response => response.json())
-        .then(data => {
-            console.log('Parsed response:', data); // Log the full response for debugging
+        .then(response => {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let buffer = "";
+            let isFirstChunk = true;
 
-            if (data.success && data.data.results.length > 0) {
-                renderResults(data.data.results, resultsContainer); // Pass resultsContainer
-            } else {
-                resultsContainer.innerHTML = '<p>No results found.</p>';
+            function processChunk({ done, value }) {
+                if (done) {
+                    console.log("Stream complete");
+                    // Hide "Searching..." once all results are processed
+                    searchingMessage.style.display = 'none';
+
+                    // Show "No results found" if nothing was rendered
+                    if (!resultsContainer.innerHTML) {
+                        resultsContainer.innerHTML = '<p>No results found.</p>';
+                    }
+                    return; // Exit the loop
+                }
+
+                if (value) {
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // Handle the first chunk to remove static JSON parts
+                    if (isFirstChunk) {
+                        buffer = buffer.replace(/^\{"success": true, "data": {"results": \[/, '');
+                        isFirstChunk = false;
+                    }
+
+                    // Remove closing JSON part if it exists
+                    buffer = buffer.replace(/\]}}$/, '');
+
+                    // Parse and render complete JSON objects
+                    let startIdx = buffer.indexOf("{");
+                    while (startIdx >= 0) {
+                        let endIdx = buffer.indexOf("}", startIdx);
+                        if (endIdx < 0) break; // Wait for more data if no closing brace is found
+
+                        const jsonString = buffer.substring(startIdx, endIdx + 1);
+                        try {
+                            const repo = JSON.parse(jsonString);
+                            renderResult(repo, resultsContainer); // Render individual result
+                        } catch (e) {
+                            console.error("Error parsing JSON part:", jsonString);
+                        }
+
+                        buffer = buffer.substring(endIdx + 1); // Move to the next part
+                        startIdx = buffer.indexOf("{");
+                    }
+                }
+
+                // Continue reading the next chunk
+                return reader.read().then(processChunk);
             }
+
+            return reader.read().then(processChunk);
         })
         .catch(error => {
-            console.error('Error fetching results:', error);
+            console.error("Error fetching results:", error);
+            searchingMessage.style.display = 'none'; // Hide "Searching..." on error
             resultsContainer.innerHTML = '<p>Error fetching results. Please try again later.</p>';
         });
 }
+
+
+
+function renderResult(repo, resultsContainer) {
+    const pluginFolderName = repo.full_name.split('/')[1]; // Extract folder name
+
+    let buttonHtml;
+    if (repo.is_active) {
+        buttonHtml = `<button class="deactivate-btn" data-folder="${pluginFolderName}">Deactivate</button>`;
+    } else if (repo.is_installed) {
+        buttonHtml = `<button class="activate-btn" data-folder="${pluginFolderName}">Activate</button>`;
+    } else {
+        buttonHtml = `<button class="install-btn" data-repo="${repo.html_url}">Install</button>`;
+    }
+
+    const resultHtml = `
+        <div class="the-repo_card">
+            <div class="content">
+                <h2 class="title">
+                    <a href="${repo.html_url}" target="_blank" rel="noopener noreferrer">${repo.full_name}</a>
+                </h2>
+                <p class="description">${repo.description || 'No description available.'}</p>
+                <p class="plugin-website">${repo.homepage ? `<a href="${repo.homepage}" target="_blank" rel="noopener noreferrer" class="link">Visit Plugin Website</a>` : ''}</p>
+                ${buttonHtml}
+            </div>
+        </div>
+    `;
+    resultsContainer.insertAdjacentHTML("beforeend", resultHtml);
+
+    // Rebind event listeners for dynamic buttons
+    addEventListeners();
+}
+
 
 // Updated renderResults function to accept resultsContainer as a parameter
 function renderResults(results, resultsContainer) {
