@@ -72,15 +72,6 @@ class GitHubPluginSearch {
     
         // Initialize and register UI class
         $github_ui = new \TheRepoPlugin\RenderForm\GitHubSearchUI();
-        add_action('admin_menu', function () use ($github_ui) {
-            add_menu_page(
-                'GitHub Plugin Search',
-                'GitHub Search',
-                'manage_options',
-                'github-plugin-search',
-                [$github_ui, 'render_form']
-            );
-        });
     }
     
     

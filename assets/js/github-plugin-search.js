@@ -1,19 +1,8 @@
-(function () {
-    document.addEventListener('DOMContentLoaded', function () {
-        const form = document.getElementById('the-repo-plugin-search-form');
-        if (form) {
-            form.addEventListener('submit', function (e) {
-                e.preventDefault();
-                const query = document.getElementById('github-search-query').value.trim();
-                searchGitHub(query, 1);
-            });
-        } else {
-            console.error('Form not found.');
-        }
-    });
-})();
-
-
+document.getElementById('github-search-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const query = document.getElementById('github-search-query').value.trim();
+    searchGitHub(query, 1);
+});
 
 function searchGitHub(query, page) {
     const resultsContainer = document.getElementById('github-search-results');
