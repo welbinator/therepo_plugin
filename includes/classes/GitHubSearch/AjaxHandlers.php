@@ -22,6 +22,10 @@ class AjaxHandlers {
         $query = sanitize_text_field($_GET['query']);
         $topics = ['wordpress-plugin'];
     
+        // Get installed and active plugins
+        $installed_plugins = get_plugins(); // All installed plugins
+        $active_plugins = get_option('active_plugins', []); // Active plugins
+    
         // Start output buffering
         @ini_set('zlib.output_compression', 0);
         @ini_set('implicit_flush', 1);
@@ -62,6 +66,14 @@ class AjaxHandlers {
                 if (!empty($unique_repo)) {
                     $repo = reset($unique_repo); // Take the first valid result
     
+                    // Extract plugin slug and folder
+                    $plugin_slug = strtolower(basename($repo['html_url'])); // Repo slug
+                    $plugin_folder = $plugin_slug . '/' . $plugin_slug . '.php'; // Typical plugin folder/file structure
+    
+                    // Add installation and activation status
+                    $repo['is_installed'] = isset($installed_plugins[$plugin_folder]);
+                    $repo['is_active'] = $repo['is_installed'] && in_array($plugin_folder, $active_plugins);
+    
                     // Add a comma before every result except the first
                     if (!$first) {
                         echo ',';
@@ -80,6 +92,7 @@ class AjaxHandlers {
         flush();
         die();
     }
+    
     
     
     
