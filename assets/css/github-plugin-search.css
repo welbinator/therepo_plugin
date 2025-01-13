@@ -1,0 +1,72 @@
+#github-plugin-search {
+    max-width: 95%;
+    margin: 20px 0;
+}
+#github-search-results {
+    margin-top: 50px;
+}
+#github-search-pagination {
+    margin-top: 20px;
+}
+#github-search-pagination a {
+    margin: 0 5px;
+    text-decoration: none;
+    padding: 5px 10px;
+    border: 1px solid #ccc;
+    display: inline-block;
+    color: #000;
+}
+#github-search-pagination a.active {
+    font-weight: bold;
+    background-color: #f0f0f0;
+}
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+}
+.the-repo_card {
+    background-color: white;
+    overflow: hidden;
+    padding: .75rem;
+    border: 1px solid #cdcdcd;
+    max-width: 300px;
+}
+.content {
+    padding: .5rem;
+}
+.title a {
+    font-size: 1.25rem;
+    font-weight: 600;
+    text-decoration: none;
+    color: #000;
+}
+.title a:hover {
+    text-decoration: underline;
+}
+.description {
+    color: #4a5568;
+    margin-bottom: 1rem;
+}
+.link {
+    color: #3182ce;
+    text-decoration: none;
+    transition: color 0.2s ease-in-out;
+}
+.link:hover {
+    color: #2b6cb0;
+}
+.install-btn {
+    display: inline-block;
+    margin-top: 1rem;
+    padding: 0.5rem 1rem;
+    background-color: #3182ce;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+.install-btn:hover {
+    background-color: #2b6cb0;
+}

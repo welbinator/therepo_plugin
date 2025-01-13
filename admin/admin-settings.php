@@ -2,7 +2,7 @@
 
 namespace TheRepoPlugin\Admin\Settings;
 
-use TheRepoPlugin\GitHubSearch\GitHubPluginSearch; // Import the class
+use TheRepoPlugin\GitHubPluginSearch\GitHubPluginSearch;
 
 // Register the settings page and the submenu page
 add_action('admin_menu', function () {
@@ -73,20 +73,21 @@ function render_main_settings_page() {
 
 // Render the GitHub Plugins page
 function render_github_plugins_page() {
-    // Check if the user is allowed to access this page
     if (!current_user_can('manage_options')) {
         return;
     }
 
-    // Create an instance of GitHubPluginSearch
-    $github_search = new GitHubPluginSearch();
     ?>
     <div class="wrap">
         <h1><?php _e('GitHub Plugins', 'the-repo-plugin'); ?></h1>
 
         <!-- GitHub Search Form -->
         <h2><?php _e('Search GitHub Plugins', 'the-repo-plugin'); ?></h2>
-        <?php $github_search->render_form(); ?>
+        <?php
+        $github_search = new \TheRepoPlugin\RenderForm\GitHubSearchUI();
+        $github_search->render_form(); // Render directly
+        ?>
     </div>
     <?php
 }
+
