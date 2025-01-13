@@ -68,11 +68,30 @@ class AjaxHandlers {
     
                     // Extract plugin slug and folder
                     $plugin_slug = strtolower(basename($repo['html_url'])); // Repo slug
-                    $plugin_folder = $plugin_slug . '/' . $plugin_slug . '.php'; // Typical plugin folder/file structure
     
-                    // Add installation and activation status
-                    $repo['is_installed'] = isset($installed_plugins[$plugin_folder]);
-                    $repo['is_active'] = $repo['is_installed'] && in_array($plugin_folder, $active_plugins);
+                    // Extended matching logic
+                    $repo['is_installed'] = false;
+                    $repo['is_active'] = false;
+    
+                    foreach ($installed_plugins as $plugin_file => $plugin_data) {
+                        $plugin_folder_name = strtolower(dirname($plugin_file));
+                        $plugin_basename = strtolower(basename($plugin_file, '.php'));
+                        $plugin_title = sanitize_title($plugin_data['Name']);
+                        $latest_release_zip_name = $this->get_latest_release_zip_name($repo['html_url']);
+    
+                        // Flexible matching
+                        if (
+                            $plugin_folder_name === $plugin_slug ||
+                            $plugin_basename === $plugin_slug ||
+                            strpos($plugin_folder_name, $plugin_slug) !== false || // Partial match for folder name
+                            strpos($plugin_title, $plugin_slug) !== false ||     // Partial match for plugin title
+                            ($latest_release_zip_name && strpos($plugin_folder_name, $latest_release_zip_name) !== false)
+                        ) {
+                            $repo['is_installed'] = true;
+                            $repo['is_active'] = in_array($plugin_file, $active_plugins);
+                            break;
+                        }
+                    }
     
                     // Add a comma before every result except the first
                     if (!$first) {
@@ -93,7 +112,27 @@ class AjaxHandlers {
         die();
     }
     
+
+    function get_latest_release_zip_name($repo_url) {
+        $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', rtrim($repo_url, '/')) . '/releases/latest';
     
+        $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
     
+        if (is_wp_error($response)) {
+            error_log('[DEBUG] Failed to fetch latest release for ' . $repo_url . ': ' . $response->get_error_message());
+            return null;
+        }
+    
+        $release_data = json_decode(wp_remote_retrieve_body($response), true);
+    
+        if (isset($release_data['assets'][0]['name'])) {
+            $zip_name = strtolower(pathinfo($release_data['assets'][0]['name'], PATHINFO_FILENAME));
+            error_log('[DEBUG] Latest release ZIP name for ' . $repo_url . ': ' . $zip_name);
+            return $zip_name;
+        }
+    
+        error_log('[DEBUG] No ZIP name found for latest release of ' . $repo_url);
+        return null;
+    }
     
 }
