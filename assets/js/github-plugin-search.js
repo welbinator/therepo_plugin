@@ -81,13 +81,20 @@ function searchGitHub(query, page) {
 
 
 function renderResult(repo, resultsContainer) {
-    const pluginFolderName = repo.full_name.split('/')[1]; // Extract folder name
+    // Extract the repo name (after the slash)
+    const repoName = repo.full_name.split('/')[1];
+
+    // Format the repo name: capitalize each word, remove dashes, and correct "WordPress"
+    const formattedName = repoName
+        .replace(/-/g, ' ') // Replace dashes with spaces
+        .replace(/\b\w+/g, word => word.charAt(0).toUpperCase() + word.slice(1)) // Capitalize each word
+        .replace(/wordpress/gi, 'WordPress'); // Ensure "WordPress" capitalization
 
     let buttonHtml;
     if (repo.is_active) {
-        buttonHtml = `<button class="deactivate-btn" data-folder="${pluginFolderName}">Deactivate</button>`;
+        buttonHtml = `<button class="deactivate-btn" data-folder="${repoName}">Deactivate</button>`;
     } else if (repo.is_installed) {
-        buttonHtml = `<button class="activate-btn" data-folder="${pluginFolderName}">Activate</button>`;
+        buttonHtml = `<button class="activate-btn" data-folder="${repoName}">Activate</button>`;
     } else {
         buttonHtml = `<button class="install-btn" data-repo="${repo.html_url}">Install</button>`;
     }
@@ -96,7 +103,7 @@ function renderResult(repo, resultsContainer) {
         <div class="the-repo_card">
             <div class="content">
                 <h2 class="title">
-                    <a href="${repo.html_url}" target="_blank" rel="noopener noreferrer">${repo.full_name}</a>
+                    <a href="${repo.html_url}" target="_blank" rel="noopener noreferrer">${formattedName}</a>
                 </h2>
                 <p class="description">${repo.description || 'No description available.'}</p>
                 <p class="plugin-website">${repo.homepage ? `<a href="${repo.homepage}" target="_blank" rel="noopener noreferrer" class="link">Visit Plugin Website</a>` : ''}</p>
@@ -111,38 +118,39 @@ function renderResult(repo, resultsContainer) {
 }
 
 
+
 // Updated renderResults function to accept resultsContainer as a parameter
-function renderResults(results, resultsContainer) {
-    const resultsHtml = results.map(repo => {
-        const pluginFolderName = repo.full_name.split('/')[1]; // Extract folder name
+// function renderResults(results, resultsContainer) {
+//     const resultsHtml = results.map(repo => {
+//         const pluginFolderName = repo.full_name.split('/')[1]; // Extract folder name
 
-        let buttonHtml;
-        if (repo.is_active) {
-            buttonHtml = `<button class="deactivate-btn" data-folder="${pluginFolderName}">Deactivate</button>`;
-        } else if (repo.is_installed) {
-            buttonHtml = `<button class="activate-btn" data-folder="${pluginFolderName}">Activate</button>`;
-        } else {
-            buttonHtml = `<button class="install-btn" data-repo="${repo.html_url}">Install</button>`;
-        }
+//         let buttonHtml;
+//         if (repo.is_active) {
+//             buttonHtml = `<button class="deactivate-btn" data-folder="${pluginFolderName}">Deactivate</button>`;
+//         } else if (repo.is_installed) {
+//             buttonHtml = `<button class="activate-btn" data-folder="${pluginFolderName}">Activate</button>`;
+//         } else {
+//             buttonHtml = `<button class="install-btn" data-repo="${repo.html_url}">Install</button>`;
+//         }
 
-        return `
-            <div class="the-repo_card">
-                <div class="content">
-                    <h2 class="title">
-                        <a href="${repo.html_url}" target="_blank" rel="noopener noreferrer">${repo.full_name}</a>
-                    </h2>
-                    <p class="description">${repo.description || 'No description available.'}</p>
-                    <p class="plugin-website">${repo.homepage ? `<a href="${repo.homepage}" target="_blank" rel="noopener noreferrer" class="link">Visit Plugin Website</a>` : ''}</p>
-                    ${buttonHtml}
-                </div>
-            </div>
-        `;
-    }).join('');
-    resultsContainer.innerHTML = resultsHtml;
+//         return `
+//             <div class="the-repo_card">
+//                 <div class="content">
+//                     <h2 class="title">
+//                         <a href="${repo.html_url}" target="_blank" rel="noopener noreferrer">${repo.full_name}</a>
+//                     </h2>
+//                     <p class="description">${repo.description || 'No description available.'}</p>
+//                     <p class="plugin-website">${repo.homepage ? `<a href="${repo.homepage}" target="_blank" rel="noopener noreferrer" class="link">Visit Plugin Website</a>` : ''}</p>
+//                     ${buttonHtml}
+//                 </div>
+//             </div>
+//         `;
+//     }).join('');
+//     resultsContainer.innerHTML = resultsHtml;
 
-    // Rebind event listeners for dynamic buttons
-    addEventListeners();
-}
+//     // Rebind event listeners for dynamic buttons
+//     addEventListeners();
+// }
 
 
 function addEventListeners() {
