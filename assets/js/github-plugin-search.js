@@ -7,10 +7,14 @@ document.getElementById('github-search-form').addEventListener('submit', functio
 function searchGitHub(query, page) {
     const resultsContainer = document.getElementById('github-search-results');
     const searchingMessage = document.getElementById('searching-message');
+    const searchButton = document.getElementById('search-button');
     const paginationContainer = document.getElementById('github-search-pagination');
 
-    // Show "Searching..." and clear previous results
-    searchingMessage.style.display = 'block';
+    // Show "Searching..." and hide the search button
+    searchButton.style.display = 'none';
+    searchingMessage.style.display = 'flex';
+
+    // Clear previous results
     resultsContainer.innerHTML = '';
     paginationContainer.innerHTML = '';
 
@@ -24,8 +28,10 @@ function searchGitHub(query, page) {
             function processChunk({ done, value }) {
                 if (done) {
                     console.log("Stream complete");
-                    // Hide "Searching..." once all results are processed
+
+                    // Hide "Searching..." and show the search button
                     searchingMessage.style.display = 'none';
+                    searchButton.style.display = 'inline';
 
                     // Show "No results found" if nothing was rendered
                     if (!resultsContainer.innerHTML) {
@@ -73,11 +79,14 @@ function searchGitHub(query, page) {
         })
         .catch(error => {
             console.error("Error fetching results:", error);
-            searchingMessage.style.display = 'none'; // Hide "Searching..." on error
+
+            // Hide "Searching..." and show the search button
+            searchingMessage.style.display = 'none';
+            searchButton.style.display = 'inline';
+
             resultsContainer.innerHTML = '<p>Error fetching results. Please try again later.</p>';
         });
 }
-
 
 
 function renderResult(repo, resultsContainer) {
