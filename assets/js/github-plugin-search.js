@@ -18,7 +18,12 @@ function searchGitHub(query, page) {
     resultsContainer.innerHTML = '';
     paginationContainer.innerHTML = '';
 
-    fetch(`${github_plugin_search.ajax_url}?action=github_plugin_search&query=${encodeURIComponent(query)}&page=${page}`)
+    fetch(`${github_plugin_search.ajax_url}?action=github_plugin_search&query=${encodeURIComponent(query)}&page=${page}`, {
+        headers: {
+            'Accept': 'application/json', // Ensure JSON responses
+            'X-Stream-Enabled': 'true'   // Indicate support for streaming responses
+        }
+    })
         .then(response => {
             const reader = response.body.getReader();
             const decoder = new TextDecoder("utf-8");

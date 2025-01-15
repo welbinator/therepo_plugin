@@ -26,15 +26,16 @@ class AjaxHandlers {
         $installed_plugins = get_plugins(); // All installed plugins
         $active_plugins = get_option('active_plugins', []); // Active plugins
     
-        // Start output buffering
+        // Set headers to prevent buffering and ensure chunked transfer
         @ini_set('zlib.output_compression', 0);
         @ini_set('implicit_flush', 1);
         ob_implicit_flush(true);
-        ob_end_flush();
+        if (ob_get_level()) ob_end_clean(); // End output buffering if active
     
         header('Content-Type: application/json');
-        header('X-Accel-Buffering: no'); // Disable buffering on Nginx
-        header('Cache-Control: no-cache');
+        header('Cache-Control: no-cache, must-revalidate, max-age=0');
+        header('X-Accel-Buffering: no'); // For Nginx servers
+        header('Connection: keep-alive');
     
         // Begin the JSON response
         echo '{"success": true, "data": {"results": [';
@@ -101,6 +102,7 @@ class AjaxHandlers {
                     }
     
                     echo json_encode($repo);
+                    echo "\n"; // Add a newline for chunking
                     flush(); // Send the current repository to the client
                 }
             }
@@ -111,6 +113,7 @@ class AjaxHandlers {
         flush();
         die();
     }
+    
     
 
     function get_latest_release_zip_name($repo_url) {
