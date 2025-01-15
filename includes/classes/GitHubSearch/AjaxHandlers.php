@@ -62,13 +62,16 @@ class AjaxHandlers {
             }
     
             foreach ($data['items'] as $repo) {
+                // Fetch the latest release ZIP name only once
+                $latest_release_zip_name = $this->get_latest_release_zip_name($repo['html_url']);
+    
                 $unique_repo = filter_repositories_by_release_date([$repo], $this->github_headers);
     
                 if (!empty($unique_repo)) {
                     $repo = reset($unique_repo); // Take the first valid result
     
                     // Extract plugin slug and folder
-                    $plugin_slug = strtolower(basename($repo['html_url'])); // Repo slug
+                    $plugin_slug = strtolower(basename($repo['html_url']));
     
                     // Extended matching logic
                     $repo['is_installed'] = false;
@@ -78,7 +81,6 @@ class AjaxHandlers {
                         $plugin_folder_name = strtolower(dirname($plugin_file));
                         $plugin_basename = strtolower(basename($plugin_file, '.php'));
                         $plugin_title = sanitize_title($plugin_data['Name']);
-                        $latest_release_zip_name = $this->get_latest_release_zip_name($repo['html_url']);
     
                         // Flexible matching
                         if (
@@ -114,9 +116,13 @@ class AjaxHandlers {
         die();
     }
     
-    
-
     function get_latest_release_zip_name($repo_url) {
+        static $cache = []; // Use a static cache to store results for reuse
+    
+        if (isset($cache[$repo_url])) {
+            return $cache[$repo_url];
+        }
+    
         $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', rtrim($repo_url, '/')) . '/releases/latest';
     
         $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
@@ -130,6 +136,7 @@ class AjaxHandlers {
     
         if (isset($release_data['assets'][0]['name'])) {
             $zip_name = strtolower(pathinfo($release_data['assets'][0]['name'], PATHINFO_FILENAME));
+            $cache[$repo_url] = $zip_name; // Cache the result
             error_log('[DEBUG] Latest release ZIP name for ' . $repo_url . ': ' . $zip_name);
             return $zip_name;
         }
@@ -137,5 +144,6 @@ class AjaxHandlers {
         error_log('[DEBUG] No ZIP name found for latest release of ' . $repo_url);
         return null;
     }
+    
     
 }
