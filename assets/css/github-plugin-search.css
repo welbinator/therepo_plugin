@@ -71,6 +71,9 @@ form#github-search-form {
 .link:hover {
     color: #2b6cb0;
 }
+.plugin-btn {
+    cursor: pointer;
+}
 .install-btn {
     display: inline-block;
     margin-top: 1rem;

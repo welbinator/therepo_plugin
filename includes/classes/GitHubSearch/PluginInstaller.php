@@ -198,4 +198,44 @@ class PluginInstaller {
             wp_send_json_error(['message' => __('Failed to deactivate the plugin.', 'the-repo-plugin')]);
         }
     }
+
+    function handle_delete_plugin() {
+        if (!current_user_can('delete_plugins')) {
+            wp_send_json_error(['message' => __('You do not have permission to delete plugins.', 'the-repo-plugin')]);
+        }
+    
+        $repo_slug = isset($_POST['slug']) ? sanitize_text_field($_POST['slug']) : '';
+        if (empty($repo_slug)) {
+            wp_send_json_error(['message' => __('Missing plugin slug.', 'the-repo-plugin')]);
+        }
+    
+        error_log('[DEBUG] Attempting to delete plugin with slug: ' . $repo_slug);
+    
+        $installed_plugins = get_plugins(); // Fetch all installed plugins
+        $plugin_file = find_plugin_file($installed_plugins, $repo_slug);
+    
+        if (!$plugin_file) {
+            error_log('[DEBUG] Plugin file not found for slug: ' . $repo_slug);
+            wp_send_json_error(['message' => __('Plugin not found.', 'the-repo-plugin')]);
+        }
+    
+        $plugin_dir = WP_PLUGIN_DIR . '/' . dirname($plugin_file);
+    
+        // Delete the plugin directory
+        global $wp_filesystem;
+        if (!WP_Filesystem()) {
+            wp_send_json_error(['message' => __('Failed to initialize filesystem.', 'the-repo-plugin')]);
+        }
+    
+        $result = $wp_filesystem->delete($plugin_dir, true);
+    
+        if ($result) {
+            error_log('[DEBUG] Plugin deleted successfully: ' . $plugin_dir);
+            wp_send_json_success(['message' => __('Plugin deleted successfully.', 'the-repo-plugin')]);
+        } else {
+            error_log('[DEBUG] Failed to delete plugin directory: ' . $plugin_dir);
+            wp_send_json_error(['message' => __('Failed to delete the plugin.', 'the-repo-plugin')]);
+        }
+    }
+    
 }

@@ -69,6 +69,8 @@ class GitHubPluginSearch {
         add_action('wp_ajax_install_github_plugin', [$plugin_installer, 'handle_install']);
         add_action('wp_ajax_activate_plugin', [$plugin_installer, 'handle_activate_plugin']);
         add_action('wp_ajax_deactivate_plugin', [$plugin_installer, 'handle_deactivate_plugin']);
+        add_action('wp_ajax_delete_plugin', [$plugin_installer, 'handle_delete_plugin']);
+
     
         // Initialize and register UI class
         $github_ui = new \TheRepoPlugin\RenderForm\GitHubSearchUI();

@@ -1,7 +1,7 @@
 <?php
 
 function has_releases($repo_url, $github_headers) {
-    error_log("has releases!");
+    
     $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', rtrim($repo_url, '/')) . '/releases';
 
     $response = wp_remote_get($api_url, ['headers' => $github_headers]);
