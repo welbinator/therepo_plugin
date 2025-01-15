@@ -103,25 +103,28 @@ function renderResult(repo, resultsContainer) {
         .replace(/\b\w+/g, word => word.charAt(0).toUpperCase() + word.slice(1)) // Capitalize each word
         .replace(/wordpress/gi, 'WordPress'); // Ensure "WordPress" capitalization
 
-    let buttonHtml;
+    let buttonHtml = '';
+    let installButtonHtml = '';
+
     if (repo.is_active) {
         buttonHtml = `<a class="plugin-btn deactivate-btn" disabled data-folder="${repoName}">Deactivate</a> | <a class="plugin-btn delete-btn" disabled data-folder="${repoName}">Delete</a>`;
     } else if (repo.is_installed) {
         buttonHtml = `<a class="plugin-btn activate-btn" disabled data-folder="${repoName}">Activate</a> | <a class="plugin-btn delete-btn" disabled data-folder="${repoName}">Delete</a>`;
     } else {
-        buttonHtml = `<button class="plugin-btn install-btn" disabled data-repo="${repo.html_url}">Install</button>`;
+        installButtonHtml = `<button class="plugin-btn install-btn" disabled data-repo="${repo.html_url}">Install</button>`;
     }
 
     const resultHtml = `
-        <div class="the-repo_card">
+        <div class="the-repo_card" data-repo="${repoName}">
             <div class="content">
                 <h2 class="title">
                     <a href="${repo.html_url}" target="_blank" rel="noopener noreferrer">${formattedName}</a>
                 </h2>
+                ${buttonHtml ? `<p class="plugin-actions">${buttonHtml}</p>` : ''}
                 <p class="description">${repo.description || 'No description available.'}</p>
                 <p class="plugin-website">${repo.homepage ? `<a href="${repo.homepage}" target="_blank" rel="noopener noreferrer" class="link">Visit Plugin Website</a>` : ''}</p>
-                ${buttonHtml}
             </div>
+            <div class="plugin-buttons">${installButtonHtml}</div>
         </div>
     `;
     resultsContainer.insertAdjacentHTML("beforeend", resultHtml);
@@ -129,6 +132,7 @@ function renderResult(repo, resultsContainer) {
     // Rebind event listeners for dynamic buttons
     addEventListeners();
 }
+
 
 
 function addEventListeners() {
@@ -195,12 +199,12 @@ function addEventListeners() {
         button.addEventListener('click', function () {
             const repoUrl = this.dataset.repo;
             const installButton = this;
-
+    
             console.log('Install button clicked for:', repoUrl);
-
+    
             installButton.disabled = true;
             installButton.textContent = 'Installing...';
-
+    
             fetch(`${github_plugin_search.ajax_url}`, {
                 method: 'POST',
                 headers: {
@@ -216,23 +220,43 @@ function addEventListeners() {
                 console.log('Install response:', data);
                 if (data.success) {
                     const folderName = data.data.folder_name;
-
+    
                     if (!folderName) {
                         console.error('Error: folder_name is undefined in the response.');
                         installButton.disabled = false;
                         installButton.textContent = 'Install';
                         return;
                     }
-
-                    installButton.textContent = 'Activate';
-                    installButton.classList.remove('install-btn');
-                    installButton.classList.add('activate-btn');
-                    installButton.setAttribute('data-folder', folderName);
-                    installButton.disabled = false;
-
-                    console.log('Set data-folder to:', folderName);
-
-                    addEventListeners(); // Rebind listeners for the updated button state
+    
+                    // Update the card dynamically
+                    const repoCard = installButton.closest('.the-repo_card');
+    
+                    // Find the plugin-actions container and update it
+                    const buttonContainer = repoCard.querySelector('.plugin-actions');
+                    if (buttonContainer) {
+                        buttonContainer.innerHTML = `
+                            <a class="plugin-btn activate-btn" data-folder="${folderName}">Activate</a> |
+                            <a class="plugin-btn delete-btn" data-folder="${folderName}">Delete</a>
+                        `;
+                    } else {
+                        // If no buttonContainer exists, create it
+                        const content = repoCard.querySelector('.content');
+                        const newButtonContainer = document.createElement('p');
+                        newButtonContainer.classList.add('plugin-actions');
+                        newButtonContainer.innerHTML = `
+                            <a class="plugin-btn activate-btn" data-folder="${folderName}">Activate</a> |
+                            <a class="plugin-btn delete-btn" data-folder="${folderName}">Delete</a>
+                        `;
+                        content.insertBefore(newButtonContainer, content.querySelector('.description'));
+                    }
+    
+                    // Remove the install button entirely
+                    const pluginButtonsContainer = repoCard.querySelector('.plugin-buttons');
+                    if (pluginButtonsContainer) {
+                        pluginButtonsContainer.innerHTML = '';
+                    }
+    
+                    addEventListeners(); // Rebind event listeners for the new buttons
                 } else {
                     alert(data.data.message || 'An error occurred.');
                     installButton.textContent = 'Install';
@@ -247,6 +271,7 @@ function addEventListeners() {
             });
         });
     });
+    
 
     // Similar cleanup logic for Activate and Deactivate buttons
     document.querySelectorAll('.activate-btn').forEach(button => {
