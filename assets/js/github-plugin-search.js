@@ -29,6 +29,10 @@ function searchGitHub(query, page) {
                 if (done) {
                     console.log("Stream complete");
 
+                    document.querySelectorAll('.plugin-btn').forEach(button => {
+                        button.removeAttribute('disabled');
+                    });
+
                     // Hide "Searching..." and show the search button
                     searchingMessage.style.display = 'none';
                     searchButton.style.display = 'inline';
@@ -101,11 +105,11 @@ function renderResult(repo, resultsContainer) {
 
     let buttonHtml;
     if (repo.is_active) {
-        buttonHtml = `<button class="deactivate-btn" data-folder="${repoName}">Deactivate</button>`;
+        buttonHtml = `<a class="plugin-btn deactivate-btn" disabled data-folder="${repoName}">Deactivate</a> | <a class="plugin-btn delete-btn" disabled data-folder="${repoName}">Delete</a>`;
     } else if (repo.is_installed) {
-        buttonHtml = `<button class="activate-btn" data-folder="${repoName}">Activate</button>`;
+        buttonHtml = `<a class="plugin-btn activate-btn" disabled data-folder="${repoName}">Activate</a> | <a class="plugin-btn delete-btn" disabled data-folder="${repoName}">Delete</a>`;
     } else {
-        buttonHtml = `<button class="install-btn" data-repo="${repo.html_url}">Install</button>`;
+        buttonHtml = `<button class="plugin-btn install-btn" disabled data-repo="${repo.html_url}">Install</button>`;
     }
 
     const resultHtml = `
@@ -127,46 +131,63 @@ function renderResult(repo, resultsContainer) {
 }
 
 
-
-// Updated renderResults function to accept resultsContainer as a parameter
-// function renderResults(results, resultsContainer) {
-//     const resultsHtml = results.map(repo => {
-//         const pluginFolderName = repo.full_name.split('/')[1]; // Extract folder name
-
-//         let buttonHtml;
-//         if (repo.is_active) {
-//             buttonHtml = `<button class="deactivate-btn" data-folder="${pluginFolderName}">Deactivate</button>`;
-//         } else if (repo.is_installed) {
-//             buttonHtml = `<button class="activate-btn" data-folder="${pluginFolderName}">Activate</button>`;
-//         } else {
-//             buttonHtml = `<button class="install-btn" data-repo="${repo.html_url}">Install</button>`;
-//         }
-
-//         return `
-//             <div class="the-repo_card">
-//                 <div class="content">
-//                     <h2 class="title">
-//                         <a href="${repo.html_url}" target="_blank" rel="noopener noreferrer">${repo.full_name}</a>
-//                     </h2>
-//                     <p class="description">${repo.description || 'No description available.'}</p>
-//                     <p class="plugin-website">${repo.homepage ? `<a href="${repo.homepage}" target="_blank" rel="noopener noreferrer" class="link">Visit Plugin Website</a>` : ''}</p>
-//                     ${buttonHtml}
-//                 </div>
-//             </div>
-//         `;
-//     }).join('');
-//     resultsContainer.innerHTML = resultsHtml;
-
-//     // Rebind event listeners for dynamic buttons
-//     addEventListeners();
-// }
-
-
 function addEventListeners() {
     // Remove existing event listeners to prevent duplication
-    document.querySelectorAll('.install-btn, .activate-btn, .deactivate-btn').forEach(button => {
+    document.querySelectorAll('.install-btn, .activate-btn, .deactivate-btn, .delete-btn').forEach(button => {
         const clone = button.cloneNode(true);
         button.parentNode.replaceChild(clone, button);
+    });
+    // Delete button
+    document.querySelectorAll('.delete-btn').forEach(button => {
+        button.addEventListener('click', function () {
+            const folderName = this.dataset.folder;
+            const deleteButton = this;
+
+            console.log('Delete button clicked for folder:', folderName);
+
+            if (!folderName) {
+                alert('Error: Missing plugin folder name.');
+                return;
+            }
+
+            if (!confirm('Are you sure you want to delete this plugin? This action cannot be undone.')) {
+                return;
+            }
+
+            deleteButton.disabled = true;
+            deleteButton.textContent = 'Deleting...';
+
+            fetch(`${github_plugin_search.ajax_url}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    action: 'delete_plugin', // PHP handler for deletion
+                    slug: folderName,       // Plugin folder name
+                }),
+            })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Delete response:', data);
+
+                    if (data.success) {
+                        alert(data.message || 'Plugin deleted successfully.');
+                        deleteButton.closest('.the-repo_card').remove(); // Remove the card from the DOM
+                    } else {
+                        alert(data.message || 'An error occurred while deleting the plugin.');
+                        deleteButton.textContent = 'Delete';
+                    }
+
+                    deleteButton.disabled = false;
+                })
+                .catch(error => {
+                    console.error('Error during deletion:', error);
+                    alert('An error occurred while deleting the plugin. Please try again.');
+                    deleteButton.textContent = 'Delete';
+                    deleteButton.disabled = false;
+                });
+        });
     });
 
     // Install button
