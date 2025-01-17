@@ -23,8 +23,8 @@ class AjaxHandlers {
         $topics = ['wordpress-plugin'];
     
         // Get installed and active plugins
-        $installed_plugins = get_plugins(); // All installed plugins
-        $active_plugins = get_option('active_plugins', []); // Active plugins
+        $installed_plugins = get_plugins();
+        $active_plugins = get_option('active_plugins', []);
     
         // Start output buffering
         @ini_set('zlib.output_compression', 0);
@@ -33,7 +33,7 @@ class AjaxHandlers {
         ob_end_flush();
     
         header('Content-Type: application/json');
-        header('X-Accel-Buffering: no'); // Disable buffering on Nginx
+        header('X-Accel-Buffering: no');
         header('Cache-Control: no-cache');
     
         // Begin the JSON response
@@ -41,6 +41,9 @@ class AjaxHandlers {
         flush();
     
         $first = true;
+    
+        // Cache release data for repositories to avoid redundant API calls
+        $repo_release_cache = [];
     
         foreach ($topics as $topic) {
             $api_query = urlencode($query) . "+topic:" . $topic;
@@ -64,10 +67,16 @@ class AjaxHandlers {
                 $unique_repo = filter_repositories_by_release_date([$repo], $this->github_headers);
     
                 if (!empty($unique_repo)) {
-                    $repo = reset($unique_repo); // Take the first valid result
+                    $repo = reset($unique_repo);
     
                     // Extract plugin slug and folder
-                    $plugin_slug = strtolower(basename($repo['html_url'])); // Repo slug
+                    $plugin_slug = strtolower(basename($repo['html_url']));
+    
+                    // Cache release data for the repository
+                    if (!isset($repo_release_cache[$repo['html_url']])) {
+                        $repo_release_cache[$repo['html_url']] = $this->get_latest_release_zip_name($repo['html_url']);
+                    }
+                    $latest_release_zip_name = $repo_release_cache[$repo['html_url']];
     
                     // Extended matching logic
                     $repo['is_installed'] = false;
@@ -77,14 +86,12 @@ class AjaxHandlers {
                         $plugin_folder_name = strtolower(dirname($plugin_file));
                         $plugin_basename = strtolower(basename($plugin_file, '.php'));
                         $plugin_title = sanitize_title($plugin_data['Name']);
-                        $latest_release_zip_name = $this->get_latest_release_zip_name($repo['html_url']);
     
-                        // Flexible matching
                         if (
                             $plugin_folder_name === $plugin_slug ||
                             $plugin_basename === $plugin_slug ||
-                            strpos($plugin_folder_name, $plugin_slug) !== false || // Partial match for folder name
-                            strpos($plugin_title, $plugin_slug) !== false ||     // Partial match for plugin title
+                            strpos($plugin_folder_name, $plugin_slug) !== false ||
+                            strpos($plugin_title, $plugin_slug) !== false ||
                             ($latest_release_zip_name && strpos($plugin_folder_name, $latest_release_zip_name) !== false)
                         ) {
                             $repo['is_installed'] = true;
@@ -101,7 +108,7 @@ class AjaxHandlers {
                     }
     
                     echo json_encode($repo);
-                    flush(); // Send the current repository to the client
+                    flush();
                 }
             }
         }
@@ -111,6 +118,7 @@ class AjaxHandlers {
         flush();
         die();
     }
+    
     
 
     function get_latest_release_zip_name($repo_url) {
