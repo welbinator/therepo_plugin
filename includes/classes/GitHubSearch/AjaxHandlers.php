@@ -50,8 +50,10 @@ class AjaxHandlers {
         ob_end_flush();
     
         header('Content-Type: application/json');
-        header('X-Accel-Buffering: no'); // Disable buffering on Nginx
+        header('Transfer-Encoding: chunked');
         header('Cache-Control: no-cache');
+        header('Content-Encoding: identity');
+        header('X-Accel-Buffering: no');
     
         // Begin the JSON response
         echo '{"success": true, "data": {"results": [';
