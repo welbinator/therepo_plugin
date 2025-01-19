@@ -47,6 +47,11 @@ class GitHubPluginSearch {
      * Initialize the core classes used in the plugin and register hooks.
      */
     private function initialize_classes() {
+        $github_base_url = 'https://api.github.com';
+        $github_headers = [
+            'User-Agent' => 'WordPress GitHub Plugin Search',
+            'Authorization' => 'token ' . get_option('the_repo_plugin_github_pat', ''),
+        ];
         // Initialize RepositoryCache
         \TheRepoPlugin\Database\RepositoryCache::create_table();
     
