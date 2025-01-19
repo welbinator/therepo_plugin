@@ -39,5 +39,20 @@ class AssetsManager {
             [],
             '1.0.0'
         );
+
+         // Enqueue JavaScript for admin settings
+         wp_enqueue_script(
+            'repo-plugin-admin-js',
+            $plugin_url . '../assets/js/admin.js',
+            ['jquery'],
+            '1.0.0',
+            true
+        );
+
+        // Localize script with AJAX URL and nonce for admin settings
+        wp_localize_script('repo-plugin-admin-js', 'theRepoPluginAjax', [
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce'    => wp_create_nonce('refresh_repositories_nonce'),
+        ]);
     }
 }

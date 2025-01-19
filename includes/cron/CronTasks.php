@@ -27,8 +27,12 @@ class CronTasks {
         ];
         $topics = ['wordpress-plugin'];
     
+        // Calculate the date six months ago
+        $date_six_months_ago = date('Y-m-d', strtotime('-6 months'));
+    
         foreach ($topics as $topic) {
-            $api_url = "$github_base_url/search/repositories?q=topic:$topic+has:releases+pushed:>2022-01-01&per_page=100";
+            // Use dynamic date in the query
+            $api_url = "$github_base_url/search/repositories?q=topic:$topic+has:releases+pushed:>$date_six_months_ago&per_page=100";
             error_log('[DEBUG] GitHub API URL: ' . $api_url);
     
             $response = wp_remote_get($api_url, ['headers' => $github_headers]);
@@ -72,6 +76,7 @@ class CronTasks {
             }
         }
     }
+    
     
     
 }
