@@ -4,11 +4,10 @@ document.getElementById('github-search-form').addEventListener('submit', functio
     searchGitHub(query, 1);
 });
 
-function searchGitHub(query, page) {
+function searchGitHub(query) {
     const resultsContainer = document.getElementById('github-search-results');
     const searchingMessage = document.getElementById('searching-message');
     const searchButton = document.getElementById('search-button');
-    const paginationContainer = document.getElementById('github-search-pagination');
 
     // Show "Searching..." and hide the search button
     searchButton.style.display = 'none';
@@ -16,73 +15,45 @@ function searchGitHub(query, page) {
 
     // Clear previous results
     resultsContainer.innerHTML = '';
-    paginationContainer.innerHTML = '';
 
-    fetch(`${github_plugin_search.ajax_url}?action=github_plugin_search&query=${encodeURIComponent(query)}&page=${page}`)
+    // Create the data to send via POST
+    const formData = new FormData();
+    formData.append('action', 'github_plugin_search');
+    formData.append('search_term', query);
+
+    fetch(github_plugin_search.ajax_url, {
+        method: 'POST',
+        body: formData,
+    })
         .then(response => {
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder("utf-8");
-            let buffer = "";
-            let isFirstChunk = true;
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Hide "Searching..." and show the search button
+            searchingMessage.style.display = 'none';
+            searchButton.style.display = 'inline';
 
-            function processChunk({ done, value }) {
-                if (done) {
-                    console.log("Stream complete");
-
-                    document.querySelectorAll('.plugin-btn').forEach(button => {
-                        button.removeAttribute('disabled');
-                    });
-
-                    // Hide "Searching..." and show the search button
-                    searchingMessage.style.display = 'none';
-                    searchButton.style.display = 'inline';
-
-                    // Show "No results found" if nothing was rendered
-                    if (!resultsContainer.innerHTML) {
-                        resultsContainer.innerHTML = '<p>No results found.</p>';
-                    }
-                    return; // Exit the loop
-                }
-
-                if (value) {
-                    buffer += decoder.decode(value, { stream: true });
-
-                    // Handle the first chunk to remove static JSON parts
-                    if (isFirstChunk) {
-                        buffer = buffer.replace(/^\{"success": true, "data": {"results": \[/, '');
-                        isFirstChunk = false;
-                    }
-
-                    // Remove closing JSON part if it exists
-                    buffer = buffer.replace(/\]}}$/, '');
-
-                    // Parse and render complete JSON objects
-                    let startIdx = buffer.indexOf("{");
-                    while (startIdx >= 0) {
-                        let endIdx = buffer.indexOf("}", startIdx);
-                        if (endIdx < 0) break; // Wait for more data if no closing brace is found
-
-                        const jsonString = buffer.substring(startIdx, endIdx + 1);
-                        try {
-                            const repo = JSON.parse(jsonString);
-                            renderResult(repo, resultsContainer); // Render individual result
-                        } catch (e) {
-                            console.error("Error parsing JSON part:", jsonString);
-                        }
-
-                        buffer = buffer.substring(endIdx + 1); // Move to the next part
-                        startIdx = buffer.indexOf("{");
-                    }
-                }
-
-                // Continue reading the next chunk
-                return reader.read().then(processChunk);
+            if (!data.success) {
+                // Handle errors returned by the server
+                resultsContainer.innerHTML = `<p>${data.data.message}</p>`;
+                return;
             }
 
-            return reader.read().then(processChunk);
+            const results = data.data.results;
+
+            if (results.length === 0) {
+                resultsContainer.innerHTML = '<p>No matching results found. Please try a different search term.</p>';
+                return;
+            }
+
+            // Render the search results
+            results.forEach(repo => renderResult(repo, resultsContainer));
         })
         .catch(error => {
-            console.error("Error fetching results:", error);
+            console.error('[ERROR] Fetch failed:', error);
 
             // Hide "Searching..." and show the search button
             searchingMessage.style.display = 'none';
@@ -94,8 +65,10 @@ function searchGitHub(query, page) {
 
 
 function renderResult(repo, resultsContainer) {
-    // Extract the repo name (after the slash)
-    const repoName = repo.full_name.split('/')[1];
+    // Safeguard properties and handle missing data
+    const repoName = repo.full_name
+        ? repo.full_name.split('/')[1]
+        : repo.name || 'Unknown Repo';
 
     // Format the repo name: capitalize each word, remove dashes, and correct "WordPress"
     const formattedName = repoName
@@ -103,35 +76,26 @@ function renderResult(repo, resultsContainer) {
         .replace(/\b\w+/g, word => word.charAt(0).toUpperCase() + word.slice(1)) // Capitalize each word
         .replace(/wordpress/gi, 'WordPress'); // Ensure "WordPress" capitalization
 
-    let buttonHtml = '';
-    let installButtonHtml = '';
-
-    if (repo.is_active) {
-        buttonHtml = `<a class="plugin-btn deactivate-btn" disabled data-folder="${repoName}">Deactivate</a> | <a class="plugin-btn delete-btn" disabled data-folder="${repoName}">Delete</a>`;
-    } else if (repo.is_installed) {
-        buttonHtml = `<a class="plugin-btn activate-btn" disabled data-folder="${repoName}">Activate</a> | <a class="plugin-btn delete-btn" disabled data-folder="${repoName}">Delete</a>`;
-    } else {
-        installButtonHtml = `<button class="plugin-btn install-btn" disabled data-repo="${repo.html_url}">Install</button>`;
-    }
+    const repoHtmlUrl = repo.html_url || '#';
+    const repoDescription = repo.description || 'No description available.';
+    const repoHomepage = repo.homepage || '';
 
     const resultHtml = `
         <div class="the-repo_card" data-repo="${repoName}">
             <div class="content">
                 <h2 class="title">
-                    <a href="${repo.html_url}" target="_blank" rel="noopener noreferrer">${formattedName}</a>
+                    <a href="${repoHtmlUrl}" target="_blank" rel="noopener noreferrer">${formattedName}</a>
                 </h2>
-                ${buttonHtml ? `<p class="plugin-actions">${buttonHtml}</p>` : ''}
-                <p class="description">${repo.description || 'No description available.'}</p>
-                <p class="plugin-website">${repo.homepage ? `<a href="${repo.homepage}" target="_blank" rel="noopener noreferrer" class="link">Visit Plugin Website</a>` : ''}</p>
+                <p class="description">${repoDescription}</p>
+                <p class="plugin-website">${repoHomepage ? `<a href="${repoHomepage}" target="_blank" rel="noopener noreferrer" class="link">Visit Plugin Website</a>` : ''}</p>
             </div>
-            <div class="plugin-buttons">${installButtonHtml}</div>
         </div>
     `;
-    resultsContainer.insertAdjacentHTML("beforeend", resultHtml);
 
-    // Rebind event listeners for dynamic buttons
-    addEventListeners();
+    resultsContainer.insertAdjacentHTML('beforeend', resultHtml);
 }
+
+
 
 
 
