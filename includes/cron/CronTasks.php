@@ -57,7 +57,7 @@ class CronTasks {
 
                 if (!empty($data['items'])) {
                     foreach ($data['items'] as $repo) {
-                        error_log('[DEBUG] Processing Repository: ' . $repo['full_name']);
+                        
 
                         $repo_data = [
                             'repo_id' => $repo['id'],
@@ -69,8 +69,7 @@ class CronTasks {
                             'homepage' => $repo['homepage'] ?? '',
                         ];
 
-                        // Log data before saving
-                        error_log('[DEBUG] Repository Data to Save: ' . print_r($repo_data, true));
+                        
 
                         // Save to database
                         RepositoryCache::save_repository($repo_data);
@@ -84,7 +83,7 @@ class CronTasks {
                 }
             }
 
-            error_log('[DEBUG] Finished processing topic: ' . $topic);
+            
         }
     }
 }

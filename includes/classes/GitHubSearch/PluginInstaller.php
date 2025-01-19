@@ -24,6 +24,7 @@ class PluginInstaller {
     
         $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', $repo_url) . '/releases/latest';
         error_log('[DEBUG] GitHub API URL: ' . $api_url);
+    
         $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
     
         if (is_wp_error($response)) {
@@ -33,29 +34,44 @@ class PluginInstaller {
     
         $release_data = json_decode(wp_remote_retrieve_body($response), true);
         error_log('[DEBUG] Release data: ' . print_r($release_data, true));
-
+    
         $zip_url = '';
-        if (!empty($assets)) {
-            foreach ($assets as $asset) {
-                if (isset($asset['browser_download_url']) && str_ends_with($asset['name'], '.zip')) {
+    
+        if (!empty($release_data['assets'])) {
+            // Look for the specific asset first (e.g., mailpoet.zip)
+            foreach ($release_data['assets'] as $asset) {
+                if (isset($asset['browser_download_url']) && $asset['name'] === 'mailpoet.zip') {
                     $zip_url = $asset['browser_download_url'];
+                    error_log('[DEBUG] Found specific asset: ' . $zip_url);
                     break;
                 }
             }
+    
+            // If the specific asset is not found, look for "Source Code (zip)"
+            if (empty($zip_url)) {
+                foreach ($release_data['assets'] as $asset) {
+                    if (isset($asset['browser_download_url']) && stripos($asset['name'], 'source code') !== false && stripos($asset['name'], 'zip') !== false) {
+                        $zip_url = $asset['browser_download_url'];
+                        error_log('[DEBUG] Falling back to Source Code (zip): ' . $zip_url);
+                        break;
+                    }
+                }
+            }
         }
-
-        // Fallback to GitHub's default zipball if no asset matches
+    
+        // If no assets match, fall back to zipball_url
         if (empty($zip_url) && !empty($release_data['zipball_url'])) {
             $zip_url = $release_data['zipball_url'];
             error_log('[DEBUG] Falling back to zipball_url for the latest release.');
         }
-
+    
         if (empty($zip_url)) {
             error_log('[DEBUG] No valid ZIP URL found in the release data.');
             wp_send_json_error(['message' => __('No downloadable ZIP found for the latest release.', 'the-repo-plugin')]);
         }
-
     
+        // Proceed with downloading and extracting the plugin ZIP
+        // The remaining part of the function stays the same
         require_once ABSPATH . 'wp-admin/includes/file.php';
         require_once ABSPATH . 'wp-admin/includes/plugin.php';
         require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
@@ -132,6 +148,7 @@ class PluginInstaller {
             'folder_name' => $plugin_folder_name,
         ]);
     }
+    
     
     
     
