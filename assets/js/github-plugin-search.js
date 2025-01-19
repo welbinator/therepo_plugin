@@ -65,7 +65,8 @@ function searchGitHub(query) {
 
 
 function renderResult(repo, resultsContainer) {
-    const repoName = repo.name || 'Unknown Repo';
+    // Extract the repository name from 'full_name' if 'name' is missing
+    const repoName = repo.name || (repo.full_name ? repo.full_name.split('/')[1] : 'Unknown Repo');
 
     // Format the repo name: capitalize each word, remove dashes, and correct "WordPress"
     const formattedName = repoName
@@ -108,6 +109,7 @@ function renderResult(repo, resultsContainer) {
     // Rebind event listeners for dynamic buttons
     addEventListeners();
 }
+
 
 
 
