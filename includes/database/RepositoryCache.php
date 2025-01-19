@@ -45,6 +45,8 @@ class RepositoryCache {
     
 
     public static function create_table() {
+        error_log("[DEBUG] Creating table: " . self::$table_name);
+
         global $wpdb;
         self::init();
         $charset_collate = $wpdb->get_charset_collate();

@@ -28,7 +28,7 @@ class CronTasks {
         $topics = ['wordpress-plugin'];
     
         // Calculate the date six months ago
-        $date_six_months_ago = date('Y-m-d', strtotime('-6 months'));
+        $date_six_months_ago = date('Y-m-d', strtotime('-24 months'));
     
         foreach ($topics as $topic) {
             // Use dynamic date in the query
