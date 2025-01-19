@@ -20,9 +20,6 @@ class AjaxHandlers {
         // Sanitize the search term
         $search_term = sanitize_text_field($_POST['search_term']);
 
-        // Debugging: Log the sanitized search term
-        error_log("[DEBUG] Received search term: $search_term");
-
         // Perform the GitHub search
         $results = $this->search_github($search_term);
 
@@ -35,7 +32,7 @@ class AjaxHandlers {
         }
 
         // Debugging: Log the search results
-        error_log("[DEBUG] GitHub search results: " . print_r($results, true));
+        // error_log("[DEBUG] GitHub search results: " . print_r($results, true));
 
         // Send the search results back to the client
         wp_send_json_success(['results' => $results]);
@@ -46,7 +43,7 @@ class AjaxHandlers {
         $url = "https://api.github.com/search/repositories?q=" . urlencode($search_term) . 
                "+topic:wordpress-plugin+has:releases+pushed:>{$date}";
     
-        error_log("[DEBUG] GitHub API URL: $url");
+        // error_log("[DEBUG] GitHub API URL: $url");
     
         $response = wp_remote_get($url, [
             'headers' => [
@@ -64,6 +61,9 @@ class AjaxHandlers {
         if (!isset($data['items'])) {
             return new WP_Error('invalid_response', 'Invalid response from GitHub API');
         }
+    
+        $installed_plugins = get_plugins(); // Fetch all installed plugins
+        $active_plugins = get_option('active_plugins', []); // Get all active plugins
     
         $results = [];
         foreach ($data['items'] as $item) {
@@ -86,18 +86,31 @@ class AjaxHandlers {
                 continue; // Skip repositories with no releases
             }
     
+            // Determine if the plugin is installed and active
+            $repo_name = $item['name'];
+            $plugin_installed = false;
+            $plugin_active = false;
+    
+            foreach ($installed_plugins as $plugin_file => $plugin_data) {
+                if (strpos($plugin_file, $repo_name) !== false) {
+                    $plugin_installed = true;
+                    $plugin_active = in_array($plugin_file, $active_plugins, true);
+                    break;
+                }
+            }
+    
             $results[] = [
                 'name' => $item['name'],
                 'full_name' => $item['full_name'],
                 'description' => $item['description'],
                 'html_url' => $item['html_url'],
                 'homepage' => $item['homepage'] ?? null,
+                'is_installed' => $plugin_installed,
+                'is_active' => $plugin_active,
             ];
         }
     
         return $results;
     }
-    
-    
     
 }

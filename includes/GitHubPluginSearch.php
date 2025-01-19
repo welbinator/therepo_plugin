@@ -27,6 +27,8 @@ class GitHubPluginSearch {
             __DIR__ . '/database/RepositoryCache.php',
             __DIR__ . '/cron/CronTasks.php',
             __DIR__ . '/classes/GitHubSearch/AjaxHandlers.php',
+            __DIR__ . '/classes/GitHubSearch/PluginInstaller.php',
+            __DIR__ . '/helpers/find-plugin-file.php',
             __DIR__ . '/classes/AssetsManager.php',
             __DIR__ . '/../admin/admin-settings.php',
             __DIR__ . '/classes/GitHubSearch/GitHubSearchUI.php',
@@ -55,6 +57,15 @@ class GitHubPluginSearch {
         $ajax_handlers = new \TheRepoPlugin\AjaxHandlers\AjaxHandlers();
         add_action('wp_ajax_github_plugin_search', [$ajax_handlers, 'handle_ajax']);
         add_action('wp_ajax_nopriv_github_plugin_search', [$ajax_handlers, 'handle_ajax']);
+    
+        // Initialize PluginInstaller
+        $plugin_installer = new \TheRepoPlugin\PluginInstaller\PluginInstaller(
+            'https://api.github.com',
+            ['User-Agent' => 'TheRepoPlugin']
+        );
+        add_action('wp_ajax_install_github_plugin', [$plugin_installer, 'handle_install']);
+        add_action('wp_ajax_activate_plugin', [$plugin_installer, 'handle_activate_plugin']);
+        add_action('wp_ajax_deactivate_plugin', [$plugin_installer, 'handle_deactivate_plugin']);
     
         // Initialize CronTasks
         \TheRepoPlugin\CronTasks\CronTasks::schedule_sync();
