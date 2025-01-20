@@ -54,7 +54,7 @@ function render_main_settings_page() {
                         <label for="the_repo_plugin_github_pat"><?php _e('GitHub Personal Access Token', 'the-repo-plugin'); ?></label>
                     </th>
                     <td>
-                        <input type="text" id="the_repo_plugin_github_pat" name="the_repo_plugin_github_pat" value="<?php echo esc_attr($github_pat); ?>" class="regular-text" />
+                        <input type="password" id="the_repo_plugin_github_pat" name="the_repo_plugin_github_pat" value="<?php echo esc_attr($github_pat); ?>" class="regular-text" />
                         <p class="description">
                             <?php _e('Enter your GitHub Personal Access Token. This is required to authenticate with the GitHub API.', 'the-repo-plugin'); ?>
                         </p>
@@ -67,11 +67,11 @@ function render_main_settings_page() {
 <table class="form-table">
     <tr>
         <th scope="row">
-            <label for="the_repo_plugin_github_pat"><?php _e('Refresh Repositories in Database', 'the-repo-plugin'); ?></label>
+            <label for="the_repo_plugin_github_pat"><?php _e('Populate/Update Database', 'the-repo-plugin'); ?></label>
         </th>
         <td>
             <button id="refresh-repositories" class="button button-primary">
-                <?php _e('Refresh Repositories', 'the-repo-plugin'); ?>
+                <?php _e('Populate Database', 'the-repo-plugin'); ?>
             </button>
         </td>
     </tr>
