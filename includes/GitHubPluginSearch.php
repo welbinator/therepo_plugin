@@ -47,13 +47,29 @@ class GitHubPluginSearch {
      * Initialize the core classes used in the plugin and register hooks.
      */
     private function initialize_classes() {
+        global $wpdb;
+
+        // Check if the table exists before attempting to create it
+        $table_name = $wpdb->prefix . 'github_repositories';
+        $table_exists = $wpdb->get_var($wpdb->prepare(
+            "SHOW TABLES LIKE %s", 
+            $table_name
+        )) === $table_name;
+
+        if (!$table_exists) {
+            // Create the table if it doesn't exist
+            \TheRepoPlugin\Database\RepositoryCache::create_table();
+            error_log("[DEBUG] Table $table_name created during initialization.");
+        } else {
+            error_log("[DEBUG] Table $table_name already exists.");
+        }
+
         $github_base_url = 'https://api.github.com';
         $github_headers = [
             'User-Agent' => 'WordPress GitHub Plugin Search',
             'Authorization' => 'token ' . get_option('the_repo_plugin_github_pat', ''),
         ];
-        // Initialize RepositoryCache
-        \TheRepoPlugin\Database\RepositoryCache::create_table();
+       
     
         // Initialize AssetsManager
         add_action('admin_enqueue_scripts', ['\TheRepoPlugin\AssetsManager', 'enqueue_assets']);
@@ -83,9 +99,6 @@ class GitHubPluginSearch {
     public static function on_activation() {
         // Ensure required database table is created
         \TheRepoPlugin\Database\RepositoryCache::create_table();
-
-        // Schedule cron tasks
-        \TheRepoPlugin\CronTasks\CronTasks::schedule_sync();
 
         // Perform an initial GitHub data fetch
         try {

@@ -81,40 +81,47 @@ function render_main_settings_page() {
     </div>
 
     <script>
-        document.getElementById('refresh-repositories').addEventListener('click', function () {
-            if (!confirm('<?php _e('Are you sure you want to refresh the repositories?', 'the-repo-plugin'); ?>')) {
-                return;
+      let isSyncing = false;
+
+document.getElementById('refresh-repositories').addEventListener('click', function () {
+    if (!confirm('<?php _e('Are you sure you want to refresh the repositories?', 'the-repo-plugin'); ?>')) {
+        return;
+    }
+
+    const button = this;
+    button.disabled = true;
+    button.textContent = '<?php _e('Refreshing...', 'the-repo-plugin'); ?>';
+    isSyncing = true;
+
+    fetch(ajaxurl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            action: 'refresh_repositories',
+            nonce: '<?php echo wp_create_nonce('refresh_repositories_nonce'); ?>',
+        }),
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(data.data.message || '<?php _e('Repositories refreshed successfully!', 'the-repo-plugin'); ?>');
+            } else {
+                console.error('[DEBUG] Failed to refresh repositories:', data.data.message);
             }
-
-            const button = this;
-            button.disabled = true;
-            button.textContent = '<?php _e('Refreshing...', 'the-repo-plugin'); ?>';
-
-            fetch(ajaxurl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({
-                    action: 'refresh_repositories',
-                    nonce: '<?php echo wp_create_nonce('refresh_repositories_nonce'); ?>',
-                }),
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        alert(data.data.message || '<?php _e('Repositories refreshed successfully!', 'the-repo-plugin'); ?>');
-                    } else {
-                        alert(data.data.message || '<?php _e('Failed to refresh repositories.', 'the-repo-plugin'); ?>');
-                    }
-                    button.disabled = false;
-                    button.textContent = '<?php _e('Refresh Repositories', 'the-repo-plugin'); ?>';
-                })
-                .catch(error => {
-                    console.error(error);
-                    alert('<?php _e('An error occurred. Please try again later.', 'the-repo-plugin'); ?>');
-                    button.disabled = false;
-                    button.textContent = '<?php _e('Refresh Repositories', 'the-repo-plugin'); ?>';
-                });
+        })
+        .catch(error => {
+            console.error('[ERROR] An error occurred during the sync:', error);
+        })
+        .finally(() => {
+            button.disabled = false;
+            button.textContent = '<?php _e('Refresh Repositories', 'the-repo-plugin'); ?>';
+            isSyncing = false;
         });
+});
+
+// Remove the `beforeunload` event listener entirely
+window.removeEventListener('beforeunload', null);
+
     </script>
     <?php
 }
@@ -147,5 +154,5 @@ add_action('wp_ajax_refresh_repositories', function () {
     // Call the sync method from CronTasks
     \TheRepoPlugin\CronTasks\CronTasks::sync_repositories_to_db();
 
-    wp_send_json_success(['message' => __('Repositories refreshed successfully.', 'the-repo-plugin')]);
+    // wp_send_json_success(['message' => __('Repositories refreshed successfully.', 'the-repo-plugin')]);
 });
