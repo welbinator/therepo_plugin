@@ -12,7 +12,6 @@ class PluginInstaller {
     }
 
     function handle_install() {
-        // Check permissions
         if (!current_user_can('install_plugins')) {
             wp_send_json_error(['message' => __('You do not have permission to install plugins.', 'the-repo-plugin')]);
         }
@@ -23,7 +22,6 @@ class PluginInstaller {
         }
     
         $api_url = str_replace('https://github.com/', 'https://api.github.com/repos/', $repo_url) . '/releases/latest';
-        error_log('[DEBUG] GitHub API URL: ' . $api_url);
     
         $response = wp_remote_get($api_url, ['headers' => $this->github_headers]);
     
@@ -33,33 +31,39 @@ class PluginInstaller {
         }
     
         $release_data = json_decode(wp_remote_retrieve_body($response), true);
-        error_log('[DEBUG] Release data: ' . print_r($release_data, true));
     
         $zip_url = '';
     
+        // Asset selection logic
         if (!empty($release_data['assets'])) {
-            // Look for the specific asset first (e.g., mailpoet.zip)
             foreach ($release_data['assets'] as $asset) {
-                if (isset($asset['browser_download_url']) && $asset['name'] === 'mailpoet.zip') {
+                if (
+                    isset($asset['browser_download_url']) &&
+                    preg_match('/\.zip$/i', $asset['name']) &&
+                    !stripos($asset['name'], 'source code')
+                ) {
                     $zip_url = $asset['browser_download_url'];
-                    error_log('[DEBUG] Found specific asset: ' . $zip_url);
+                    error_log('[DEBUG] Found special asset: ' . $asset['name']);
                     break;
                 }
             }
     
-            // If the specific asset is not found, look for "Source Code (zip)"
             if (empty($zip_url)) {
                 foreach ($release_data['assets'] as $asset) {
-                    if (isset($asset['browser_download_url']) && stripos($asset['name'], 'source code') !== false && stripos($asset['name'], 'zip') !== false) {
+                    if (
+                        isset($asset['browser_download_url']) &&
+                        stripos($asset['name'], 'source code') !== false &&
+                        preg_match('/\.zip$/i', $asset['name'])
+                    ) {
                         $zip_url = $asset['browser_download_url'];
-                        error_log('[DEBUG] Falling back to Source Code (zip): ' . $zip_url);
+                        error_log('[DEBUG] Falling back to Source Code (zip): ' . $asset['name']);
                         break;
                     }
                 }
             }
         }
     
-        // If no assets match, fall back to zipball_url
+        // Fallback to zipball_url
         if (empty($zip_url) && !empty($release_data['zipball_url'])) {
             $zip_url = $release_data['zipball_url'];
             error_log('[DEBUG] Falling back to zipball_url for the latest release.');
@@ -105,7 +109,7 @@ class PluginInstaller {
         }
     
         $extracted_folders = array_diff(scandir($temp_dir), ['.', '..']);
-        error_log('[DEBUG] Extracted folders: ' . print_r($extracted_folders, true));
+        // error_log('[DEBUG] Extracted folders: ' . print_r($extracted_folders, true));
     
         if (empty($extracted_folders)) {
             unlink($temp_file);
@@ -120,7 +124,7 @@ class PluginInstaller {
         // Handle existing directory
         if (is_dir($plugin_dir)) {
             $wp_filesystem->delete($plugin_dir, true);
-            error_log('[DEBUG] Existing plugin directory removed: ' . $plugin_dir);
+            // error_log('[DEBUG] Existing plugin directory removed: ' . $plugin_dir);
         }
     
         if (!rename($temp_dir . '/' . $plugin_folder_name, $plugin_dir)) {
@@ -141,7 +145,7 @@ class PluginInstaller {
             wp_send_json_error(['message' => __('Plugin installation failed.', 'the-repo-plugin')]);
         }
     
-        error_log('[DEBUG] Successfully installed plugin. Folder name: ' . $plugin_folder_name);
+        // error_log('[DEBUG] Successfully installed plugin. Folder name: ' . $plugin_folder_name);
     
         wp_send_json_success([
             'message' => __('Plugin installed successfully! Please activate it from the Plugins page.', 'the-repo-plugin'),
@@ -164,10 +168,10 @@ class PluginInstaller {
             wp_send_json_error(['message' => __('Missing plugin slug.', 'the-repo-plugin')]);
         }
     
-        error_log('[DEBUG] Activation request for slug: ' . $repo_slug);
+        // error_log('[DEBUG] Activation request for slug: ' . $repo_slug);
     
         $installed_plugins = get_plugins(); // Fetch all installed plugins
-        error_log('[DEBUG] Installed plugins: ' . print_r($installed_plugins, true));
+        // error_log('[DEBUG] Installed plugins: ' . print_r($installed_plugins, true));
     
         $plugin_file = find_plugin_file($installed_plugins, $repo_slug);
         
@@ -184,12 +188,12 @@ class PluginInstaller {
             wp_send_json_error(['message' => $result->get_error_message()]);
         }
     
-        error_log('[DEBUG] Plugin activated successfully: ' . $plugin_file);
+        // error_log('[DEBUG] Plugin activated successfully: ' . $plugin_file);
         wp_send_json_success(['message' => __('Plugin activated successfully.', 'the-repo-plugin')]);
     }
     
     function handle_deactivate_plugin() {
-        error_log('[DEBUG] Raw POST data: ' . print_r($_POST, true));
+        // error_log('[DEBUG] Raw POST data: ' . print_r($_POST, true));
         // Check permissions
         if (!current_user_can('activate_plugins')) {
             error_log('[DEBUG] User does not have permission to deactivate plugins.');
@@ -197,27 +201,27 @@ class PluginInstaller {
         }
     
         // Log incoming POST data
-        error_log('[DEBUG] Received POST data: ' . print_r($_POST, true));
+        // error_log('[DEBUG] Received POST data: ' . print_r($_POST, true));
     
         // Sanitize and validate slug
         $repo_slug = isset($_POST['slug']) ? sanitize_text_field($_POST['slug']) : '';
-        error_log('[DEBUG] Received slug in deactivate_plugin: ' . $repo_slug);
+        // error_log('[DEBUG] Received slug in deactivate_plugin: ' . $repo_slug);
         if (empty($repo_slug)) {
             error_log('[DEBUG] Missing slug in deactivation request.');
             wp_send_json_error(['message' => __('Missing plugin slug.', 'the-repo-plugin')]);
         }
     
         // Log the slug being searched
-        error_log('[DEBUG] Attempting to deactivate plugin with slug: ' . $repo_slug);
+        // error_log('[DEBUG] Attempting to deactivate plugin with slug: ' . $repo_slug);
     
         // Fetch installed plugins
         $installed_plugins = get_plugins(); // Fetch all installed plugins
-        error_log('[DEBUG] Installed plugins: ' . print_r($installed_plugins, true));
+        // error_log('[DEBUG] Installed plugins: ' . print_r($installed_plugins, true));
     
         // Find the plugin file
         $plugin_file = find_plugin_file($installed_plugins, $repo_slug);
         
-        error_log('[DEBUG] Matched plugin file: ' . ($plugin_file ?: 'Not Found'));
+        // error_log('[DEBUG] Matched plugin file: ' . ($plugin_file ?: 'Not Found'));
     
         // Handle missing plugin file
         if (!$plugin_file) {
@@ -230,7 +234,7 @@ class PluginInstaller {
     
         // Check if deactivation was successful
         if (!is_plugin_active($plugin_file)) {
-            error_log('[DEBUG] Plugin deactivated successfully: ' . $plugin_file);
+            // error_log('[DEBUG] Plugin deactivated successfully: ' . $plugin_file);
             wp_send_json_success(['message' => __('Plugin deactivated successfully.', 'the-repo-plugin')]);
         } else {
             error_log('[DEBUG] Failed to deactivate the plugin: ' . $plugin_file);
@@ -243,41 +247,44 @@ class PluginInstaller {
 
     function handle_delete_plugin() {
         if (!current_user_can('delete_plugins')) {
+            error_log('[DEBUG] User does not have permission to delete plugins.');
             wp_send_json_error(['message' => __('You do not have permission to delete plugins.', 'the-repo-plugin')]);
         }
     
         $repo_slug = isset($_POST['slug']) ? sanitize_text_field($_POST['slug']) : '';
+        
+    
         if (empty($repo_slug)) {
             wp_send_json_error(['message' => __('Missing plugin slug.', 'the-repo-plugin')]);
         }
     
-        error_log('[DEBUG] Attempting to delete plugin with slug: ' . $repo_slug);
-    
-        $installed_plugins = get_plugins(); // Fetch all installed plugins
+        
+        $installed_plugins = get_plugins();
+        error_log('[DEBUG] Incoming slug for deletion: ' . $repo_slug);
         $plugin_file = find_plugin_file($installed_plugins, $repo_slug);
-    
         if (!$plugin_file) {
-            error_log('[DEBUG] Plugin file not found for slug: ' . $repo_slug);
+            error_log('[DEBUG] Plugin not found for slug: ' . $repo_slug);
             wp_send_json_error(['message' => __('Plugin not found.', 'the-repo-plugin')]);
         }
     
         $plugin_dir = WP_PLUGIN_DIR . '/' . dirname($plugin_file);
+        error_log('[DEBUG] Plugin directory to delete: ' . $plugin_dir);
     
-        // Delete the plugin directory
         global $wp_filesystem;
         if (!WP_Filesystem()) {
+            error_log('[DEBUG] WP_Filesystem initialization failed.');
             wp_send_json_error(['message' => __('Failed to initialize filesystem.', 'the-repo-plugin')]);
         }
     
         $result = $wp_filesystem->delete($plugin_dir, true);
-    
         if ($result) {
-            error_log('[DEBUG] Plugin deleted successfully: ' . $plugin_dir);
+            error_log('[DEBUG] Successfully deleted plugin: ' . $plugin_dir);
             wp_send_json_success(['message' => __('Plugin deleted successfully.', 'the-repo-plugin')]);
         } else {
             error_log('[DEBUG] Failed to delete plugin directory: ' . $plugin_dir);
             wp_send_json_error(['message' => __('Failed to delete the plugin.', 'the-repo-plugin')]);
         }
     }
+    
     
 }

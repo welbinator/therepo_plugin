@@ -75,6 +75,16 @@ function render_main_settings_page() {
             </button>
         </td>
     </tr>
+    <tr>
+        <th scope="row">
+            <label for="the_repo_plugin_delete_repo_data"><?php _e('Delete The Repo Data from Database', 'the-repo-plugin'); ?></label>
+        </th>
+        <td>
+            <button id="empty-repositories-table" class="button button-danger">
+                <?php _e('Empty Repositories Table', 'the-repo-plugin'); ?>
+            </button>
+        </td>
+    </tr>
 </table>
        
         
@@ -83,41 +93,41 @@ function render_main_settings_page() {
     <script>
       let isSyncing = false;
 
-document.getElementById('refresh-repositories').addEventListener('click', function () {
-    if (!confirm('<?php _e('Are you sure you want to refresh the repositories?', 'the-repo-plugin'); ?>')) {
-        return;
-    }
+// document.getElementById('refresh-repositories').addEventListener('click', function () {
+//     if (!confirm('<?php _e('Are you sure you want to refresh the repositories?', 'the-repo-plugin'); ?>')) {
+//         return;
+//     }
 
-    const button = this;
-    button.disabled = true;
-    button.textContent = '<?php _e('Refreshing...', 'the-repo-plugin'); ?>';
-    isSyncing = true;
+//     const button = this;
+//     button.disabled = true;
+//     button.textContent = '<?php _e('Refreshing...', 'the-repo-plugin'); ?>';
+//     isSyncing = true;
 
-    fetch(ajaxurl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-            action: 'refresh_repositories',
-            nonce: '<?php echo wp_create_nonce('refresh_repositories_nonce'); ?>',
-        }),
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                alert(data.data.message || '<?php _e('Repositories refreshed successfully!', 'the-repo-plugin'); ?>');
-            } else {
-                console.error('[DEBUG] Failed to refresh repositories:', data.data.message);
-            }
-        })
-        .catch(error => {
-            console.error('[ERROR] An error occurred during the sync:', error);
-        })
-        .finally(() => {
-            button.disabled = false;
-            button.textContent = '<?php _e('Refresh Repositories', 'the-repo-plugin'); ?>';
-            isSyncing = false;
-        });
-});
+//     fetch(ajaxurl, {
+//         method: 'POST',
+//         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+//         body: new URLSearchParams({
+//             action: 'refresh_repositories',
+//             nonce: '<?php echo wp_create_nonce('refresh_repositories_nonce'); ?>',
+//         }),
+//     })
+//         .then(response => response.json())
+//         .then(data => {
+//             if (data.success) {
+//                 alert(data.data.message || '<?php _e('Repositories refreshed successfully!', 'the-repo-plugin'); ?>');
+//             } else {
+//                 console.error('[DEBUG] Failed to refresh repositories:', data.data.message);
+//             }
+//         })
+//         .catch(error => {
+//             console.error('[ERROR] An error occurred during the sync:', error);
+//         })
+//         .finally(() => {
+//             button.disabled = false;
+//             button.textContent = '<?php _e('Refresh Repositories', 'the-repo-plugin'); ?>';
+//             isSyncing = false;
+//         });
+// });
 
 // Remove the `beforeunload` event listener entirely
 window.removeEventListener('beforeunload', null);
@@ -132,18 +142,42 @@ function render_github_plugins_page() {
         return;
     }
 
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'github_repositories';
+    $is_populated = (int) $wpdb->get_var("SELECT COUNT(*) FROM $table_name") > 0;
+
     ?>
     <div class="wrap">
         <h1><?php _e('GitHub Plugins', 'the-repo-plugin'); ?></h1>
 
         <h2><?php _e('Search GitHub Plugins', 'the-repo-plugin'); ?></h2>
+
+        
+
         <?php
         $github_search = new \TheRepoPlugin\RenderForm\GitHubSearchUI();
         $github_search->render_form();
         ?>
+
+        <div id="github-search-results"></div>
     </div>
+
+    <script>
+        const isDatabasePopulated = <?php echo $is_populated ? 'true' : 'false'; ?>;
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const searchButton = document.getElementById('search-button');
+            const warning = document.getElementById('no-repositories-warning');
+
+            if (!isDatabasePopulated) {
+                searchButton.disabled = true;
+                warning.style.display = 'block';
+            }
+        });
+    </script>
     <?php
 }
+
 
 // AJAX handler for refreshing repositories
 add_action('wp_ajax_refresh_repositories', function () {
@@ -154,5 +188,5 @@ add_action('wp_ajax_refresh_repositories', function () {
     // Call the sync method from CronTasks
     \TheRepoPlugin\CronTasks\CronTasks::sync_repositories_to_db();
 
-    // wp_send_json_success(['message' => __('Repositories refreshed successfully.', 'the-repo-plugin')]);
+    wp_send_json_success(['message' => __('Repositories refreshed successfully.', 'the-repo-plugin')]);
 });

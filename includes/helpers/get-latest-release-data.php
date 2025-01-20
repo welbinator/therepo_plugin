@@ -11,7 +11,7 @@ function get_latest_release_data($repo_url , $github_headers) {
 
     $release_data = json_decode(wp_remote_retrieve_body($response), true);
     if (!empty($release_data['created_at'])) {
-        error_log('[DEBUG] Latest release date for ' . $repo_url . ': ' . $release_data['created_at']);
+        // error_log('[DEBUG] Latest release date for ' . $repo_url . ': ' . $release_data['created_at']);
     } else {
         error_log('[DEBUG] No releases found for ' . $repo_url);
     }

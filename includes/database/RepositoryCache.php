@@ -39,32 +39,40 @@ class RepositoryCache {
         if ($result === false) {
             error_log('[DEBUG] Database Insert Error: ' . $wpdb->last_error);
         } else {
-            error_log('[DEBUG] Repository Saved: ' . $repo_data['full_name']);
+            // error_log('[DEBUG] Repository Saved: ' . $repo_data['full_name']);
         }
     }
     
 
     public static function create_table() {
-        error_log("[DEBUG] Creating table: " . self::$table_name);
-
         global $wpdb;
-        self::init();
+    
+        $table_name = $wpdb->prefix . 'github_repositories';
         $charset_collate = $wpdb->get_charset_collate();
-
-        $sql = "CREATE TABLE " . self::$table_name . " (
-            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-            repo_id BIGINT(20) NOT NULL,
-            full_name VARCHAR(255) NOT NULL,
-            html_url VARCHAR(255) NOT NULL,
-            description TEXT,
-            topics TEXT,
-            latest_release_date DATETIME DEFAULT NULL,
-            homepage VARCHAR(255) DEFAULT NULL,
+    
+        $sql = "CREATE TABLE $table_name (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            repo_id bigint(20) NOT NULL UNIQUE,
+            slug varchar(255) NOT NULL,
+            full_name varchar(255) NOT NULL,
+            html_url varchar(255) NOT NULL,
+            description text NULL,
+            topics text NULL,
+            latest_release_date datetime NULL,
+            homepage varchar(255) NULL,
             PRIMARY KEY (id),
-            UNIQUE KEY repo_id (repo_id)
+            UNIQUE (slug)
         ) $charset_collate;";
-
-        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta($sql);
+    
+        // Populate `slug` column for existing rows
+        $wpdb->query("
+            UPDATE $table_name
+            SET slug = SUBSTRING_INDEX(full_name, '/', -1)
+            WHERE slug IS NULL OR slug = ''
+        ");
     }
+    
 }

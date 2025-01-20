@@ -65,20 +65,19 @@ function searchGitHub(query) {
 
 
 function renderResult(repo, resultsContainer) {
-    // Extract the repository name from 'full_name' if 'name' is missing
+    // Extract the repository name
     const repoName = repo.name || (repo.full_name ? repo.full_name.split('/')[1] : 'Unknown Repo');
 
-    // Format the repo name: capitalize each word, remove dashes, and correct "WordPress"
+    // Format the repo name
     const formattedName = repoName
-        .replace(/-/g, ' ') // Replace dashes with spaces
-        .replace(/\b\w+/g, word => word.charAt(0).toUpperCase() + word.slice(1)) // Capitalize each word
-        .replace(/wordpress/gi, 'WordPress'); // Ensure "WordPress" capitalization
+        .replace(/-/g, ' ')
+        .replace(/\b\w+/g, (word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .replace(/wordpress/gi, 'WordPress');
 
     const repoHtmlUrl = repo.html_url || '#';
     const repoDescription = repo.description || 'No description available.';
     const repoHomepage = repo.homepage || '';
 
-    // Button rendering logic
     let buttonHtml = '';
     let installButtonHtml = '';
 
@@ -106,11 +105,8 @@ function renderResult(repo, resultsContainer) {
 
     resultsContainer.insertAdjacentHTML('beforeend', resultHtml);
 
-    // Rebind event listeners for dynamic buttons
     addEventListeners();
 }
-
-
 
 
 function addEventListeners() {
@@ -297,42 +293,45 @@ function addEventListeners() {
     document.querySelectorAll('.delete-btn').forEach(button => {
         button.addEventListener('click', function () {
             const folderName = this.dataset.folder;
+            console.log('[DEBUG] Attempting to delete plugin with slug:', folderName);
+    
             const deleteButton = this;
-
             if (!confirm('Are you sure you want to delete this plugin? This action cannot be undone.')) {
                 return;
             }
-
+    
             deleteButton.disabled = true;
             deleteButton.textContent = 'Deleting...';
-
+    
             fetch(`${github_plugin_search.ajax_url}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: new URLSearchParams({
                     action: 'delete_plugin',
                     slug: folderName,
                 }),
+                
             })
+            
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
                         alert(data.message || 'Plugin deleted successfully.');
                         deleteButton.closest('.the-repo_card').remove();
                     } else {
+                        console.error('[DEBUG] Deletion failed:', data.message);
                         alert(data.message || 'Deletion failed.');
                         deleteButton.textContent = 'Delete';
                     }
                     deleteButton.disabled = false;
                 })
                 .catch(error => {
-                    console.error('Error during deletion:', error);
+                    console.error('[ERROR] An error occurred during deletion:', error);
                     alert('An error occurred while deleting the plugin.');
                     deleteButton.textContent = 'Delete';
                     deleteButton.disabled = false;
                 });
         });
     });
+    
 }

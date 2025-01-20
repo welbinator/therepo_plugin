@@ -61,7 +61,7 @@ class GitHubPluginSearch {
             \TheRepoPlugin\Database\RepositoryCache::create_table();
             error_log("[DEBUG] Table $table_name created during initialization.");
         } else {
-            error_log("[DEBUG] Table $table_name already exists.");
+            // error_log("[DEBUG] Table $table_name already exists.");
         }
 
         $github_base_url = 'https://api.github.com';
@@ -87,9 +87,10 @@ class GitHubPluginSearch {
         add_action('wp_ajax_install_github_plugin', [$plugin_installer, 'handle_install']);
         add_action('wp_ajax_activate_plugin', [$plugin_installer, 'handle_activate_plugin']);
         add_action('wp_ajax_deactivate_plugin', [$plugin_installer, 'handle_deactivate_plugin']);
+        add_action('wp_ajax_delete_plugin', [$plugin_installer, 'handle_delete_plugin']);
+
     
-        // Initialize CronTasks
-        \TheRepoPlugin\CronTasks\CronTasks::schedule_sync();
+        
     }
     
 
@@ -99,14 +100,10 @@ class GitHubPluginSearch {
     public static function on_activation() {
         // Ensure required database table is created
         \TheRepoPlugin\Database\RepositoryCache::create_table();
-
-        // Perform an initial GitHub data fetch
-        try {
-            \TheRepoPlugin\CronTasks\CronTasks::sync_repositories_to_db();
-            error_log('[DEBUG] GitHub data fetch completed successfully during activation.');
-        } catch (\Exception $e) {
-            error_log('[ERROR] Failed to sync GitHub repositories on activation: ' . $e->getMessage());
-        }
+        
+        // Initialize CronTasks
+        \TheRepoPlugin\CronTasks\CronTasks::schedule_sync();
+    
     }
 
     /**
